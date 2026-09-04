@@ -16,13 +16,21 @@ namespace
 
 PluginHost::PluginHost()
 {
-    formatManager.addFormat (std::make_unique<juce::VST3PluginFormat>());
+    formatManager.addFormat (std::make_unique<juce::VST3PluginFormat>());   // VST2 joins in setVst2Enabled (true)
+    knownPlugins.addChangeListener (this);
+}
+
+void PluginHost::setVst2Enabled (bool enabled)
+{
+    vst2Enabled = hasVst2Support() && enabled;
 
    #if JUCE_PLUGINHOST_VST
-    formatManager.addFormat (std::make_unique<juce::VSTPluginFormat>());   // offered only while vst2Enabled
+    // registered once, on the first switch-on: JUCE's list component scans every registered format, so an app
+    // that never switches VST2 on (Enqueue) never sees it; the format stays registered after a switch-off (the
+    // manager still filters it out of the menus and refuses instances)
+    if (vst2Enabled && getFormat ("VST") == nullptr)
+        formatManager.addFormat (std::make_unique<juce::VSTPluginFormat>());
    #endif
-
-    knownPlugins.addChangeListener (this);
 }
 
 bool PluginHost::hasVst2Support() noexcept
@@ -45,7 +53,7 @@ juce::AudioPluginFormat* PluginHost::getFormat (const juce::String& name) const
 
 juce::String PluginHost::keyFor (const juce::PluginDescription& d)
 {
-    return d.pluginFormatName + "|" + juce::String (d.uniqueId) + "|" + d.fileOrIdentifier;
+    return d.pluginFormatName + "|" + juce::String (d.uniqueId) + "|" + d.name;   // the file may move; id + name stays
 }
 
 void PluginHost::setDisabledPlugins (const juce::StringArray& keys)
@@ -65,12 +73,17 @@ void PluginHost::setPluginEnabled (const juce::PluginDescription& d, bool enable
         disabledPlugins.add (key);
 }
 
+bool PluginHost::isPluginSwitchedOff (const juce::PluginDescription& d) const
+{
+    return disabledPlugins.contains (keyFor (d));
+}
+
 bool PluginHost::isPluginEnabled (const juce::PluginDescription& d) const
 {
     if (d.pluginFormatName == "VST" && ! vst2Enabled)
         return false;
 
-    return ! disabledPlugins.contains (keyFor (d));
+    return ! isPluginSwitchedOff (d);
 }
 
 PluginHost::~PluginHost()
@@ -124,7 +137,7 @@ std::unique_ptr<juce::AudioPluginInstance> PluginHost::createInstance (const juc
 
     if (description.pluginFormatName == "VST" && ! vst2Enabled)
     {
-        error = juce::String::fromUTF8 ("VST2 사용이 꺼져 있습니다 (플러그인 관리에서 켜세요): ") + description.name;
+        error = juce::String::fromUTF8 ("VST2 사용이 꺼져 있습니다 (플러그인 관리에서 켜세요)");   // the callers name the plugin
         return nullptr;
     }
 
@@ -178,7 +191,14 @@ std::unique_ptr<juce::AudioPluginInstance> PluginHost::createInstance (const Plu
 
     if (description.fileOrIdentifier.isEmpty())
     {
-        error = "No plugin file recorded for \"" + state.name + "\"";
+        error = juce::String::fromUTF8 ("저장된 플러그인 파일 경로가 없습니다");
+        return nullptr;
+    }
+
+    // a file-based plugin whose file is gone (another PC, uninstalled): say so instead of JUCE's "no compatible format"
+    if (juce::File::isAbsolutePath (description.fileOrIdentifier) && ! juce::File (description.fileOrIdentifier).exists())
+    {
+        error = juce::String::fromUTF8 ("이 PC에 없는 플러그인 파일입니다: ") + description.fileOrIdentifier;
         return nullptr;
     }
 

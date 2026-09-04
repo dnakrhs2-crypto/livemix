@@ -144,16 +144,31 @@ public:
             expectEquals (host.getAllEffectTypes().size(), 2);   // the manager lists the VST2 one too
             expect (host.isPluginEnabled (eq));
             expect (! host.isPluginEnabled (old));
+            expect (host.getFormat ("VST") == nullptr);          // not registered until switched on: no VST2 scan for an app that never does
 
             host.setVst2Enabled (true);
-            expectEquals (host.getEffectTypes().size(), 2);
-            expect (host.isPluginEnabled (old));
+            expect (host.isVst2Enabled() == PluginHost::hasVst2Support());   // a build without the SDK stays off
+
+            if (PluginHost::hasVst2Support())
+            {
+                expect (host.getFormat ("VST") != nullptr);
+                expectEquals (host.getEffectTypes().size(), 2);
+                expect (host.isPluginEnabled (old));
+            }
+            else
+            {
+                expectEquals (host.getEffectTypes().size(), 1);
+            }
 
             host.setPluginEnabled (eq, false);
-            expectEquals (host.getEffectTypes().size(), 1);
-            expectEquals (host.getEffectTypes()[0].name, juce::String ("OldComp"));
+            expect (host.isPluginSwitchedOff (eq) && ! host.isPluginSwitchedOff (old));
+            expect (! host.isPluginEnabled (eq));
             expectEquals (host.getDisabledPlugins().size(), 1);
             expectEquals (host.getDisabledPlugins()[0], PluginHost::keyFor (eq));
+
+            auto moved = eq;
+            moved.fileOrIdentifier = "D:\\moved\\EQ.vst3";   // the same plugin from another folder keeps its switch
+            expect (host.isPluginSwitchedOff (moved));
 
             host.setDisabledPlugins ({ PluginHost::keyFor (old), PluginHost::keyFor (old), "" });   // duplicates and blanks dropped
             expectEquals (host.getDisabledPlugins().size(), 1);
@@ -162,6 +177,7 @@ public:
             host.setVst2Enabled (false);
             host.setPluginEnabled (old, true);
             expect (! host.isPluginEnabled (old));   // enabled, but its format is off
+            expect (! host.isPluginSwitchedOff (old));   // ... and its own switch says so
         }
     }
 };

@@ -13,8 +13,8 @@ namespace gocue::livemix
 
 /** 플러그인 관리: a window of its own (hidden on close). The scanned plugins with a "사용" switch each (a plugin
     switched off stays out of every '+ 추가' menu), the VST2 switch (off unless the operator wants it), the scans,
-    and the plugin presets of this PC: made here from the enabled plugins (1. 2. 3. ...), renamed, deleted, saved
-    to / loaded from a file, and loaded into any chain from its '+ 추가' menu. */
+    and the plugin presets of this PC: made here from the enabled plugins (1. 2. 3. ..., in a window of its own that
+    goes with this one), renamed, deleted, saved to / loaded from a file, and loaded into any chain from its '+ 추가' menu. */
 class PluginManagerWindow : public juce::DocumentWindow
 {
 public:

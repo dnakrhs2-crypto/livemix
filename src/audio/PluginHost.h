@@ -31,16 +31,20 @@ public:
 
     /** The build can host VST2 plugins (the SDK headers were there). */
     static bool hasVst2Support() noexcept;
-    /** VST2 plugins are offered and instantiated only while this is on (the operator's switch; off by default). */
-    void setVst2Enabled (bool enabled) noexcept { vst2Enabled = enabled; }
+    /** VST2 plugins are offered and instantiated only while this is on (the operator's switch; off by default).
+        The VST2 format is registered on the first switch-on: an app that never switches it on never scans VST2.
+        A build without the SDK stays off whatever it is asked. */
+    void setVst2Enabled (bool enabled);
     bool isVst2Enabled() const noexcept { return vst2Enabled; }
 
-    /** The key a plugin is remembered by in the disabled set: format, id and file. */
+    /** The key a plugin is remembered by in the disabled set: format, id and name (not the file: a plugin may move). */
     static juce::String keyFor (const juce::PluginDescription& description);
     /** Plugins the operator switched off stay out of getEffectTypes(). */
     void setDisabledPlugins (const juce::StringArray& keys);
     const juce::StringArray& getDisabledPlugins() const noexcept { return disabledPlugins; }
     void setPluginEnabled (const juce::PluginDescription& description, bool enabled);
+    /** In the disabled set (the operator's own choice, whatever its format's switch says). */
+    bool isPluginSwitchedOff (const juce::PluginDescription& description) const;
     /** Not switched off, and of a format that is on. */
     bool isPluginEnabled (const juce::PluginDescription& description) const;
 

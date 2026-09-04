@@ -423,7 +423,56 @@ void MainComponent::showPluginManager()
         pluginManagerWindow = std::make_unique<PluginManagerWindow> (engine.getPluginHost(), settings, PluginPreset::defaultFolder());
         pluginManagerWindow->onVst2Changed = [this] (bool on)
         {
+            // the switch changes what the menus offer and what a session opened from now on loads; the chains of
+            // the session already open stay as they are until it is opened again - so say so, and offer to
+            int vst2Slots = 0;
+            const auto& session = document.getSession();
+            auto count = [&vst2Slots] (const std::vector<PluginSlotState>& chain)
+            {
+                for (const auto& slot : chain)
+                    if (slot.format == "VST")
+                        ++vst2Slots;
+            };
+
+            for (const auto& c : session.channels)
+                count (c.chain);
+
+            for (const auto& f : session.fx)
+                count (f.chain);
+
+            count (session.master.chain);
+
+            if (vst2Slots == 0)
+            {
+                showStatus (on ? ko ("VST2 플러그인 사용: 켬 (이제 열거나 넣는 것부터)") : ko ("VST2 플러그인 사용: 끔 (이제 열거나 넣는 것부터)"));
+                return;
+            }
+
+            const auto slots = juce::String (vst2Slots);
+
+            if (! document.hasFile())
+            {
+                showStatus (on ? ko ("이 세션의 VST2 자리 ") + slots + ko ("개는 세션을 저장한 뒤 다시 열면 채워집니다")
+                               : ko ("이 세션의 VST2 플러그인 ") + slots + ko ("개는 세션을 저장한 뒤 다시 열어야 빠집니다"), true);
+                return;
+            }
+
             showStatus (on ? ko ("VST2 플러그인 사용: 켬") : ko ("VST2 플러그인 사용: 끔"));
+            juce::Component::SafePointer<MainComponent> safeThis (this);
+            juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                              .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                                              .withTitle (on ? ko ("VST2 자리 채우기") : ko ("VST2 플러그인 빼기"))
+                                              .withMessage (on ? ko ("이 세션에 VST2 플러그인 자리가 ") + slots + ko ("개 있습니다 (VST2가 꺼져 있어 비워 둔 자리).") + juce::newLine
+                                                                     + ko ("세션을 다시 열어 그 자리를 채울까요?")
+                                                               : ko ("이 세션의 VST2 플러그인 ") + slots + ko ("개는 세션을 다시 열 때까지 그대로 동작합니다.") + juce::newLine
+                                                                     + ko ("지금 세션을 다시 열어 그 자리를 비울까요? (세션 파일은 그대로, 다시 켜면 돌아옵니다)"))
+                                              .withButton (ko ("다시 열기"))
+                                              .withButton (ko ("나중에")),
+                                          [safeThis] (int result)
+            {
+                if (safeThis != nullptr && result == 1 && safeThis->document.hasFile())
+                    safeThis->openSession (safeThis->document.getFile());
+            });
         };
     }
 

@@ -52,6 +52,36 @@ namespace
     }
 
     constexpr int columnFlags = juce::TableHeaderComponent::visible | juce::TableHeaderComponent::resizable;
+
+    /** The preset builder's own window (not modal: the manager stays usable). Closing it - the title bar, Esc -
+        tells the manager, which deletes it. */
+    class BuilderWindow : public juce::DialogWindow
+    {
+    public:
+        BuilderWindow (const juce::String& title, std::function<void()> closed)
+            : DialogWindow (title, Palette::card, true, true), onClose (std::move (closed)) {}
+
+        void closeButtonPressed() override
+        {
+            if (onClose)
+                onClose();
+        }
+
+        /** Esc closes it the same way (DialogWindow's own Esc handling would only hide it, leaving it to reopen invisible). */
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress (juce::KeyPress::escapeKey))
+            {
+                closeButtonPressed();
+                return true;
+            }
+
+            return DialogWindow::keyPressed (key);
+        }
+
+    private:
+        std::function<void()> onClose;
+    };
 }
 
 //==============================================================================
@@ -59,7 +89,7 @@ namespace
 class PresetBuilder : public juce::Component
 {
 public:
-    PresetBuilder (juce::Array<juce::PluginDescription> types, std::function<void (const PluginPreset&)> onSave, std::function<void()> onCancel)
+    PresetBuilder (juce::Array<juce::PluginDescription> types, std::function<juce::Result (const PluginPreset&)> onSave, std::function<void()> onCancel)
         : allAvailable (std::move (types)), available (allAvailable), save (std::move (onSave)), cancel (std::move (onCancel)),
           availableModel (*this, false), chosenModel (*this, true)
     {
@@ -275,12 +305,13 @@ private:
             preset.plugins.push_back (slotFor (d));
 
         if (save)
-            save (preset);
+            if (const auto result = save (preset); result.failed())
+                statusLabel.setText (result.getErrorMessage(), juce::dontSendNotification);   // here, where the operator is looking
     }
 
     juce::Array<juce::PluginDescription> allAvailable, available;   // every enabled plugin; the ones the search shows
     std::vector<juce::PluginDescription> chosen;
-    std::function<void (const PluginPreset&)> save;
+    std::function<juce::Result (const PluginPreset&)> save;
     std::function<void()> cancel;
     Model availableModel, chosenModel;
 
@@ -445,6 +476,13 @@ public:
 
     void paint (juce::Graphics& g) override { g.fillAll (Palette::card); }
 
+    /** The builder's window goes with the manager (closed, or the app quitting). */
+    void closeBuilder()
+    {
+        if (builderWindow != nullptr)
+            delete builderWindow.getComponent();
+    }
+
     void refreshPresets()
     {
         juce::StringArray problems;
@@ -477,17 +515,18 @@ private:
                 return;
 
             const auto& d = owner.types[row];
-            const bool enabled = owner.host.isPluginEnabled (d);
+            const bool switchedOn = ! owner.host.isPluginSwitchedOff (d);   // the box: this plugin's own switch
+            const bool enabled = owner.host.isPluginEnabled (d);           // the text: offered in the menus (its format on too)
 
             if (columnId == colEnabled)
             {
                 const auto box = juce::Rectangle<float> (18.0f, 18.0f).withCentre ({ (float) width * 0.5f, (float) height * 0.5f });
-                g.setColour (enabled ? Palette::accent : Palette::line);
+                g.setColour (switchedOn ? (enabled ? Palette::accent : Palette::dimText) : Palette::line);
                 g.drawRoundedRectangle (box, 4.0f, 1.5f);
 
-                if (enabled)
+                if (switchedOn)
                 {
-                    g.setColour (Palette::accent);
+                    g.setColour (enabled ? Palette::accent : Palette::dimText);
                     juce::Path tick;
                     tick.startNewSubPath (box.getX() + 4.0f, box.getCentreY());
                     tick.lineTo (box.getCentreX() - 1.0f, box.getBottom() - 5.0f);
@@ -519,7 +558,7 @@ private:
             if (columnId == colEnabled && row >= 0 && row < owner.types.size())
             {
                 const auto& d = owner.types[row];
-                owner.host.setPluginEnabled (d, ! owner.host.isPluginEnabled (d));
+                owner.host.setPluginEnabled (d, owner.host.isPluginSwitchedOff (d));   // its own switch, whatever its format's switch says
                 owner.settings.setDisabledPlugins (owner.host.getDisabledPlugins());
                 owner.pluginTable.repaint();
             }
@@ -595,17 +634,17 @@ private:
 
     void scan (const juce::String& formatName)
     {
-        auto* format = host.getFormat (formatName);
+        if (formatName == "VST" && ! host.isVst2Enabled())
+        {
+            setStatus (PluginHost::hasVst2Support() ? ko ("먼저 'VST2 플러그인 사용'을 켜세요.") : ko ("이 빌드에는 VST2 지원이 없습니다."), true);
+            return;
+        }
+
+        auto* format = host.getFormat (formatName);   // VST2 is registered by the switch, so it is here once that is on
 
         if (format == nullptr)
         {
             setStatus (ko ("이 빌드에는 그 형식이 없습니다: ") + formatLabel (formatName), true);
-            return;
-        }
-
-        if (formatName == "VST" && ! host.isVst2Enabled())
-        {
-            setStatus (ko ("먼저 'VST2 플러그인 사용'을 켜세요."), true);
             return;
         }
 
@@ -654,16 +693,11 @@ private:
             owner.onPresetsChanged();
     }
 
-    void closeBuilder()
-    {
-        if (builderWindow != nullptr)
-            delete builderWindow.getComponent();
-    }
-
     void newPreset()
     {
         if (builderWindow != nullptr)
         {
+            builderWindow->setVisible (true);
             builderWindow->toFront (true);
             return;
         }
@@ -677,41 +711,37 @@ private:
         }
 
         juce::Component::SafePointer<Content> safe (this);
+        auto closeLater = [safe] { juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->closeBuilder(); }); };
         auto* builder = new PresetBuilder (enabled,
-            [safe] (const PluginPreset& preset)
+            [safe, closeLater] (const PluginPreset& preset) -> juce::Result
             {
                 if (safe == nullptr)
-                    return;
+                    return juce::Result::fail (ko ("플러그인 관리 창이 닫혔습니다"));
 
                 const auto file = PluginPreset::fileFor (preset.name, safe->presetsFolder);
 
                 if (file.existsAsFile())
-                {
-                    safe->setStatus (ko ("같은 이름의 프리셋이 이미 있습니다: ") + preset.name, true);
-                    return;
-                }
+                    return juce::Result::fail (ko ("같은 이름의 프리셋이 이미 있습니다: ") + preset.name);
 
                 if (const auto result = preset.save (file); result.failed())
-                {
-                    safe->setStatus (ko ("프리셋을 저장하지 못했습니다: ") + result.getErrorMessage(), true);
-                    return;
-                }
+                    return juce::Result::fail (ko ("프리셋을 저장하지 못했습니다: ") + result.getErrorMessage());
 
                 safe->setStatus (ko ("프리셋 저장: ") + preset.name + "  (" + preset.summary() + ")", false);
                 safe->presetsChanged();
-                juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->closeBuilder(); });
+                closeLater();
+                return juce::Result::ok();
             },
-            [safe] { juce::MessageManager::callAsync ([safe] { if (safe != nullptr) safe->closeBuilder(); }); });
+            closeLater);
 
-        juce::DialogWindow::LaunchOptions options;
-        options.content.setOwned (builder);
-        options.dialogTitle = ko ("새 플러그인 프리셋");
-        options.dialogBackgroundColour = Palette::card;
-        options.escapeKeyTriggersCloseButton = true;
-        options.useNativeTitleBar = true;
-        options.resizable = true;
-        options.componentToCentreAround = this;
-        builderWindow = options.launchAsync();
+        // a window of its own, not a modal dialog: the manager (and the rest of the app) stays usable meanwhile
+        auto* window = new BuilderWindow (ko ("새 플러그인 프리셋"), closeLater);
+        window->setUsingNativeTitleBar (true);
+        window->setContentOwned (builder, true);
+        window->setResizable (true, false);
+        window->centreAroundComponent (this, window->getWidth(), window->getHeight());
+        window->setVisible (true);
+        window->toFront (true);
+        builderWindow = window;
     }
 
     void renamePreset()
@@ -762,8 +792,13 @@ private:
                 return;
             }
 
-            if (to != from)
-                from.deleteFile();
+            if (to != from && ! from.deleteFile())
+            {
+                to.deleteFile();   // back to one preset under the old name, rather than two
+                safe->setStatus (ko ("이름을 바꾸지 못했습니다 - 원래 파일을 지울 수 없습니다 (다른 프로그램이 열고 있나요?): ") + from.getFullPathName(), true);
+                safe->presetsChanged();
+                return;
+            }
 
             safe->setStatus (ko ("이름을 바꿨습니다: ") + newName, false);
             safe->presetsChanged();
@@ -915,6 +950,9 @@ void PluginManagerWindow::open()
 
 void PluginManagerWindow::closeButtonPressed()
 {
+    if (content != nullptr)
+        content->closeBuilder();   // its window goes with this one
+
     setVisible (false);   // kept: reopening is instant
 }
 

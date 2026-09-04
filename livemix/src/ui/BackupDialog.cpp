@@ -622,6 +622,13 @@ namespace
             juce::StringArray problems;
             const auto presets = PluginPreset::listFolder (folder, &problems);
 
+            if (! problems.isEmpty())
+            {
+                // "backup complete" must mean every preset: a file that cannot be read stops it, by name
+                setStatus (ko ("백업하지 않았습니다 - 읽을 수 없는 프리셋 파일이 있습니다 (고치거나 지우세요): ") + problems.joinIntoString (" / "), true);
+                return;
+            }
+
             if (presets.empty())
             {
                 setStatus (ko ("이 PC에 플러그인 프리셋이 없습니다 (플러그인 관리에서 만듭니다)"), true);
@@ -630,9 +637,28 @@ namespace
 
             const auto target = currentTarget();
             std::vector<std::pair<juce::File, juce::String>> files;
+            juce::StringArray remotePaths, clashes;
 
             for (const auto& p : presets)
-                files.emplace_back (p.file, WebDavBackup::presetPathFor (target.share, target.accountId, p.name));
+            {
+                // the remote name follows the file name (unique in the folder), not the name inside the file
+                const auto remote = WebDavBackup::presetPathFor (target.share, target.accountId, p.file.getFileNameWithoutExtension());
+
+                if (remotePaths.contains (remote))
+                {
+                    clashes.add (p.file.getFileName());
+                    continue;
+                }
+
+                remotePaths.add (remote);
+                files.emplace_back (p.file, remote);
+            }
+
+            if (! clashes.isEmpty())
+            {
+                setStatus (ko ("백업하지 않았습니다 - 서버에서 같은 이름이 되는 프리셋 파일이 있습니다 (이름을 바꾸세요): ") + clashes.joinIntoString (", "), true);
+                return;
+            }
 
             juce::Component::SafePointer<BackupContent> safe (this);
             auto status = callbacks.status;
