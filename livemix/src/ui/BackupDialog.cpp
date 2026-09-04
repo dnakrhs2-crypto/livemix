@@ -1,6 +1,7 @@
 #include "BackupDialog.h"
 
 #include "BackupServer.h"
+#include "PluginPreset.h"
 #include "Widgets.h"
 
 namespace gocue::livemix
@@ -19,6 +20,245 @@ namespace
         settings.setBackupRememberPassword (remember);
         settings.setBackupPassword (remember ? target.accountPassword : juce::String());
     }
+
+    /** 계정 만들기: a small window of its own. The id and the password (twice) go in, the account is made on the
+        server, "등록완료!" shows, and 확인 closes the window - the backup window then signs in with the new account. */
+    class RegisterContent : public juce::Component
+    {
+    public:
+        RegisterContent (WebDavBackup& b, const juce::String& initialId, std::function<void (const juce::String& id, const juce::String& password)> registered)
+            : backup (b), onRegistered (std::move (registered))
+        {
+            styleCaption (idCaption, ko ("아이디"));
+            addAndMakeVisible (idCaption);
+            idEditor.setFont (bodyFont());
+            idEditor.setText (initialId, false);
+            idEditor.onReturnKey = [this] { submit(); };
+            addAndMakeVisible (idEditor);
+
+            styleCaption (passwordCaption, ko ("비밀번호 (4자 이상)"));
+            addAndMakeVisible (passwordCaption);
+            passwordEditor.setFont (bodyFont());
+            passwordEditor.setPasswordCharacter (0x2022);
+            passwordEditor.onReturnKey = [this] { submit(); };
+            addAndMakeVisible (passwordEditor);
+
+            styleCaption (confirmCaption, ko ("비밀번호 확인"));
+            addAndMakeVisible (confirmCaption);
+            confirmEditor.setFont (bodyFont());
+            confirmEditor.setPasswordCharacter (0x2022);
+            confirmEditor.onReturnKey = [this] { submit(); };
+            addAndMakeVisible (confirmEditor);
+
+            styleCaption (hint, ko ("아이디는 2~20자(영문·숫자·한글·_·-). 백업은 이 아이디와 비밀번호로만 올리고 내려받습니다. 비밀번호를 잊으면 되찾을 수 없습니다."));
+            hint.setFont (bodyFont (12.5f));
+            hint.setMinimumHorizontalScale (1.0f);
+            addAndMakeVisible (hint);
+
+            registerButton.setButtonText (ko ("등록"));
+            registerButton.setWantsKeyboardFocus (false);
+            registerButton.setColour (juce::TextButton::buttonColourId, Palette::accent);
+            registerButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+            registerButton.onClick = [this] { submit(); };
+            addAndMakeVisible (registerButton);
+
+            cancelButton.setButtonText (ko ("취소"));
+            cancelButton.setWantsKeyboardFocus (false);
+            cancelButton.onClick = [this] { closeWindow(); };
+            addAndMakeVisible (cancelButton);
+
+            doneLabel.setText (ko ("등록완료!"), juce::dontSendNotification);
+            doneLabel.setFont (juce::Font (juce::FontOptions (pt (26.0f), juce::Font::bold)));
+            doneLabel.setJustificationType (juce::Justification::centred);
+            doneLabel.setColour (juce::Label::textColourId, Palette::accent);
+            addChildComponent (doneLabel);
+
+            doneNote.setJustificationType (juce::Justification::centred);
+            doneNote.setFont (bodyFont (13.5f));
+            doneNote.setMinimumHorizontalScale (1.0f);
+            addChildComponent (doneNote);
+
+            okButton.setButtonText (ko ("확인"));
+            okButton.setWantsKeyboardFocus (false);
+            okButton.setColour (juce::TextButton::buttonColourId, Palette::accent);
+            okButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
+            okButton.onClick = [this]
+            {
+                if (onRegistered)
+                    onRegistered (registeredId, registeredPassword);
+
+                closeWindow();
+            };
+            addChildComponent (okButton);
+
+            statusLabel.setFont (bodyFont (13.0f));
+            statusLabel.setColour (juce::Label::textColourId, Palette::dimText);
+            statusLabel.setMinimumHorizontalScale (1.0f);
+            addAndMakeVisible (statusLabel);
+
+            setSize (440, 340);
+        }
+
+        void resized() override
+        {
+            auto area = getLocalBounds().reduced (20, 16);
+
+            if (done)
+            {
+                auto centre = area.withSizeKeepingCentre (area.getWidth(), 150);
+                doneLabel.setBounds (centre.removeFromTop (60));
+                centre.removeFromTop (8);
+                doneNote.setBounds (centre.removeFromTop (40));
+                centre.removeFromTop (12);
+                okButton.setBounds (centre.removeFromTop (34).withSizeKeepingCentre (120, 34));
+                return;
+            }
+
+            auto rowOf = [&area] (juce::Label& caption, juce::TextEditor& editor)
+            {
+                auto row = area.removeFromTop (30);
+                caption.setBounds (row.removeFromLeft (150));
+                editor.setBounds (row);
+                area.removeFromTop (8);
+            };
+
+            rowOf (idCaption, idEditor);
+            rowOf (passwordCaption, passwordEditor);
+            rowOf (confirmCaption, confirmEditor);
+            hint.setBounds (area.removeFromTop (50));
+            area.removeFromTop (8);
+            auto buttons = area.removeFromTop (32);
+            registerButton.setBounds (buttons.removeFromRight (100));
+            buttons.removeFromRight (8);
+            cancelButton.setBounds (buttons.removeFromRight (80));
+            area.removeFromTop (10);
+            statusLabel.setBounds (area.removeFromTop (40));
+        }
+
+        void paint (juce::Graphics& g) override { g.fillAll (Palette::card); }
+
+        void grabFirstField()
+        {
+            (idEditor.getText().trim().isEmpty() ? idEditor : passwordEditor).grabKeyboardFocus();
+        }
+
+    private:
+        void setStatus (const juce::String& text, bool error)
+        {
+            statusLabel.setColour (juce::Label::textColourId, error ? Palette::danger : Palette::dimText);
+            statusLabel.setText (text, juce::dontSendNotification);
+        }
+
+        void setBusy (bool busy)
+        {
+            for (auto* c : std::initializer_list<juce::Component*> { &idEditor, &passwordEditor, &confirmEditor, &registerButton })
+                c->setEnabled (! busy);
+        }
+
+        void submit()
+        {
+            if (! BackupServer::isConfigured())
+            {
+                setStatus (ko ("이 프로그램에는 백업 서버가 설정되어 있지 않습니다"), true);
+                return;
+            }
+
+            const auto id = idEditor.getText().trim();
+            const auto password = passwordEditor.getText();
+
+            if (const auto bad = WebDavBackup::validateAccountId (id); bad.isNotEmpty())
+            {
+                setStatus (bad, true);
+                idEditor.grabKeyboardFocus();
+                return;
+            }
+
+            if (password.length() < 4)
+            {
+                setStatus (ko ("비밀번호는 4자 이상으로 정하세요"), true);
+                passwordEditor.grabKeyboardFocus();
+                return;
+            }
+
+            if (confirmEditor.getText() != password)
+            {
+                setStatus (ko ("비밀번호 확인이 다릅니다"), true);
+                confirmEditor.grabKeyboardFocus();
+                return;
+            }
+
+            if (backup.isBusy())
+            {
+                setStatus (ko ("앞의 작업이 끝날 때까지 기다리세요"), true);
+                return;
+            }
+
+            const auto target = BackupServer::target (id, password);
+            juce::Component::SafePointer<RegisterContent> safe (this);
+            const auto started = backup.createAccount (target, [safe, id, password] (bool ok, const juce::String& message)
+            {
+                if (safe == nullptr)
+                    return;
+
+                if (ok)
+                {
+                    safe->showDone (id, password);
+                    return;
+                }
+
+                safe->setBusy (false);
+                safe->setStatus (message, true);
+            });
+
+            if (started.failed())
+            {
+                setStatus (started.getErrorMessage(), true);
+                return;
+            }
+
+            setBusy (true);
+            setStatus (ko ("등록하는 중..."), false);
+        }
+
+        void showDone (const juce::String& id, const juce::String& password)
+        {
+            registeredId = id;
+            registeredPassword = password;
+            done = true;
+
+            for (auto* c : std::initializer_list<juce::Component*> { &idCaption, &idEditor, &passwordCaption, &passwordEditor, &confirmCaption, &confirmEditor,
+                                                                    &hint, &registerButton, &cancelButton, &statusLabel })
+                c->setVisible (false);
+
+            doneNote.setText (ko ("아이디 '") + id + ko ("'로 등록했습니다. 확인을 누르면 이 계정으로 로그인합니다."), juce::dontSendNotification);
+            doneLabel.setVisible (true);
+            doneNote.setVisible (true);
+            okButton.setVisible (true);
+            resized();
+            okButton.grabKeyboardFocus();
+        }
+
+        void closeWindow()
+        {
+            juce::Component::SafePointer<juce::Component> window (getTopLevelComponent());
+            juce::MessageManager::callAsync ([window]
+            {
+                if (window != nullptr)
+                    delete window.getComponent();
+            });
+        }
+
+        WebDavBackup& backup;
+        std::function<void (const juce::String&, const juce::String&)> onRegistered;
+        juce::String registeredId, registeredPassword;
+        bool done = false;
+
+        juce::Label idCaption, passwordCaption, confirmCaption, hint, statusLabel, doneLabel, doneNote;
+        juce::TextEditor idEditor, passwordEditor, confirmEditor;
+        juce::TextButton registerButton, cancelButton, okButton;
+
+        JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (RegisterContent)
+    };
 
     class BackupContent : public juce::Component,
                           private juce::TableListBoxModel
@@ -58,7 +298,7 @@ namespace
 
             createButton.setButtonText (ko ("계정 만들기"));
             createButton.setWantsKeyboardFocus (false);
-            createButton.onClick = [this] { createAccount(); };
+            createButton.onClick = [this] { openRegisterWindow(); };
             addAndMakeVisible (createButton);
 
             table.setModel (this);
@@ -74,6 +314,7 @@ namespace
             header.setColour (juce::TableHeaderComponent::highlightColourId, Palette::card2);
             const int columnFlags = juce::TableHeaderComponent::visible | juce::TableHeaderComponent::resizable;
             header.addColumn (ko ("계정"), columnOwner, 120, 60, 300, columnFlags);
+            header.addColumn (ko ("종류"), columnKind, 70, 50, 90, columnFlags);
             header.addColumn ("PC", columnPc, 150, 60, 400, columnFlags);
             header.addColumn (ko ("파일"), columnName, 280, 120, 800, columnFlags);
             header.addColumn (ko ("날짜"), columnDate, 140, 100, 200, columnFlags);
@@ -87,6 +328,12 @@ namespace
             uploadButton.onClick = [this] { upload(); };
             addAndMakeVisible (uploadButton);
 
+            uploadPresetsButton.setButtonText (ko ("플러그인 프리셋 백업"));
+            uploadPresetsButton.setTooltip (ko ("이 PC의 플러그인 프리셋을 전부 이 계정에 올립니다 (같은 이름은 덮어씁니다)"));
+            uploadPresetsButton.setWantsKeyboardFocus (false);
+            uploadPresetsButton.onClick = [this] { uploadPresets(); };
+            addAndMakeVisible (uploadPresetsButton);
+
             restoreButton.setButtonText (ko ("선택한 백업 불러오기"));
             restoreButton.setWantsKeyboardFocus (false);
             restoreButton.setColour (juce::TextButton::buttonColourId, Palette::accent);
@@ -95,7 +342,7 @@ namespace
             restoreButton.onClick = [this] { restoreSelected(); };
             addAndMakeVisible (restoreButton);
 
-            styleCaption (hint, ko ("백업은 로그인한 계정의 것만 보이고, 올리기와 불러오기도 그 계정의 아이디·비밀번호로만 됩니다. 처음이면 아이디와 비밀번호를 정해 '계정 만들기'를 누르세요."));
+            styleCaption (hint, ko ("백업은 로그인한 계정의 것만 보이고, 올리기와 불러오기도 그 계정의 아이디·비밀번호로만 됩니다. 처음이면 '계정 만들기'로 아이디와 비밀번호를 등록하세요. 세션과 플러그인 프리셋이 함께 목록에 보입니다."));
             hint.setFont (bodyFont (12.5f));
             hint.setMinimumHorizontalScale (1.0f);
             addAndMakeVisible (hint);
@@ -141,6 +388,8 @@ namespace
             restoreButton.setBounds (row.removeFromRight (190));
             row.removeFromRight (14);
             uploadButton.setBounds (row.removeFromRight (150));
+            row.removeFromRight (8);
+            uploadPresetsButton.setBounds (row.removeFromRight (170));
             area.removeFromBottom (12);
 
             table.setBounds (area);
@@ -148,8 +397,14 @@ namespace
 
         void paint (juce::Graphics& g) override { g.fillAll (Palette::card); }
 
+        ~BackupContent() override
+        {
+            if (registerWindow != nullptr)
+                delete registerWindow.getComponent();   // the registration window goes with this one
+        }
+
     private:
-        enum { columnOwner = 1, columnPc, columnName, columnDate, columnSize };
+        enum { columnOwner = 1, columnPc, columnName, columnDate, columnSize, columnKind };
 
         WebDavBackup::Target currentTarget() const
         {
@@ -190,6 +445,7 @@ namespace
             signInButton.setEnabled (! busy);
             createButton.setEnabled (! busy);
             uploadButton.setEnabled (! busy);
+            uploadPresetsButton.setEnabled (! busy);
             restoreButton.setEnabled (! busy && table.getSelectedRow() >= 0);
             idEditor.setEnabled (! busy);
             passwordEditor.setEnabled (! busy);
@@ -274,43 +530,41 @@ namespace
             setStatus (ko ("로그인 중..."), false);
         }
 
-        void createAccount()
+        void openRegisterWindow()
         {
-            if (! checkReady (true))
-                return;
-
-            const auto target = currentTarget();
-            juce::Component::SafePointer<BackupContent> safe (this);
-            auto status = callbacks.status;
-            auto* prefs = &settings;
-            const bool keep = remember.getToggleState();
-            const auto started = backup.createAccount (target, [safe, target, status, prefs, keep] (bool ok, const juce::String& message)
+            if (registerWindow != nullptr)
             {
-                if (ok)
-                    persistAccount (*prefs, target, keep);   // the account exists: remembered even when the window is gone
-
-                if (status)
-                    status (message, ! ok);
-
-                if (safe == nullptr)
-                    return;
-
-                safe->setStatus (message, ! ok);
-
-                if (ok)
-                    safe->whenIdle ([safe] { if (safe != nullptr) safe->signIn(); });   // and straight in
-                else
-                    safe->setBusy (false);
-            });
-
-            if (started.failed())
-            {
-                setStatus (started.getErrorMessage(), true);
+                registerWindow->toFront (true);
                 return;
             }
 
-            setBusy (true);
-            setStatus (ko ("계정 만드는 중..."), false);
+            if (! BackupServer::isConfigured())
+            {
+                setStatus (ko ("이 프로그램에는 백업 서버가 설정되어 있지 않습니다"), true);
+                return;
+            }
+
+            juce::Component::SafePointer<BackupContent> safe (this);
+            auto* content = new RegisterContent (backup, idEditor.getText().trim(), [safe] (const juce::String& id, const juce::String& password)
+            {
+                if (safe == nullptr)
+                    return;
+
+                safe->idEditor.setText (id, false);
+                safe->passwordEditor.setText (password, false);
+                safe->whenIdle ([safe] { if (safe != nullptr) safe->signIn(); });   // straight in with the new account
+            });
+
+            juce::DialogWindow::LaunchOptions options;
+            options.content.setOwned (content);
+            options.dialogTitle = ko ("계정 만들기");
+            options.dialogBackgroundColour = Palette::card;
+            options.escapeKeyTriggersCloseButton = true;
+            options.useNativeTitleBar = true;
+            options.resizable = false;
+            options.componentToCentreAround = this;
+            registerWindow = options.launchAsync();
+            content->grabFirstField();
         }
 
         void upload()
@@ -359,6 +613,60 @@ namespace
             setStatus (ko ("백업 중... ") + remotePath.fromLastOccurrenceOf ("/", false, false), false);
         }
 
+        void uploadPresets()
+        {
+            if (! checkReady())
+                return;
+
+            const auto folder = PluginPreset::defaultFolder();
+            juce::StringArray problems;
+            const auto presets = PluginPreset::listFolder (folder, &problems);
+
+            if (presets.empty())
+            {
+                setStatus (ko ("이 PC에 플러그인 프리셋이 없습니다 (플러그인 관리에서 만듭니다)"), true);
+                return;
+            }
+
+            const auto target = currentTarget();
+            std::vector<std::pair<juce::File, juce::String>> files;
+
+            for (const auto& p : presets)
+                files.emplace_back (p.file, WebDavBackup::presetPathFor (target.share, target.accountId, p.name));
+
+            juce::Component::SafePointer<BackupContent> safe (this);
+            auto status = callbacks.status;
+            auto* prefs = &settings;
+            const bool keep = remember.getToggleState();
+            const auto started = backup.startUploads (target, std::move (files), [safe, target, status, prefs, keep] (bool ok, const juce::String& message)
+            {
+                if (ok)
+                    persistAccount (*prefs, target, keep);
+
+                if (status)
+                    status (message, ! ok);
+
+                if (safe == nullptr)
+                    return;
+
+                safe->setStatus (message, ! ok);
+
+                if (ok)
+                    safe->whenIdle ([safe] { if (safe != nullptr) safe->signIn(); });   // the presets in the list
+                else
+                    safe->setBusy (false);
+            });
+
+            if (started.failed())
+            {
+                setStatus (started.getErrorMessage(), true);
+                return;
+            }
+
+            setBusy (true);
+            setStatus (ko ("플러그인 프리셋 ") + juce::String ((int) presets.size()) + ko ("개 올리는 중..."), false);
+        }
+
         void restoreSelected()
         {
             const int row = table.getSelectedRow();
@@ -373,9 +681,13 @@ namespace
                 return;
 
             const auto entry = entries[(size_t) row];
-            auto folder = juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("LiveMix");
+            const bool preset = entry.isPreset;
+            auto folder = preset ? PluginPreset::defaultFolder()
+                                 : juce::File::getSpecialLocation (juce::File::userDocumentsDirectory).getChildFile ("LiveMix");
             folder.createDirectory();
-            const auto localName = (everyoneMode && entry.owner != idEditor.getText().trim() ? entry.owner + "_" : juce::String()) + entry.name;
+            const auto ownerPrefix = everyoneMode && entry.owner != idEditor.getText().trim() ? entry.owner + "_" : juce::String();
+            const auto localName = preset ? PluginPreset::fileNameFor (ownerPrefix + WebDavBackup::presetNameFromFileName (entry.name))
+                                          : ownerPrefix + entry.name;
             auto file = folder.getChildFile (WebDavBackup::sanitiseName (localName));
 
             if (file.existsAsFile())
@@ -386,9 +698,10 @@ namespace
             juce::Component::SafePointer<juce::Component> mine (getTopLevelComponent());   // this window, not a later one
             auto status = callbacks.status;
             auto restore = callbacks.restore;
+            auto presetRestored = callbacks.presetRestored;
             auto* prefs = &settings;
             const bool keep = remember.getToggleState();
-            const auto started = backup.startDownload (target, entry.path, file, [safe, mine, target, file, status, restore, prefs, keep] (bool ok, const juce::String& message)
+            const auto started = backup.startDownload (target, entry.path, file, [safe, mine, target, file, status, restore, presetRestored, preset, prefs, keep] (bool ok, const juce::String& message)
             {
                 auto report = [&] (const juce::String& text, bool error)
                 {
@@ -409,6 +722,38 @@ namespace
                 }
 
                 persistAccount (*prefs, target, keep);
+
+                if (preset)
+                {
+                    // a plugin preset: into the presets folder, the window stays for more
+                    PluginPreset probe;
+
+                    if (const auto check = PluginPreset::load (file, probe); check.failed())
+                    {
+                        report (juce::String::fromUTF8 ("내려받은 파일을 프리셋으로 읽을 수 없습니다: ") + check.getErrorMessage()
+                                    + juce::String::fromUTF8 (" (파일은 남겨 두었습니다: ") + file.getFullPathName() + ")", true);
+                        return;
+                    }
+
+                    // the preset goes by its file name here (an owner prefix, a "(2)"): the name inside follows, as an import does
+                    if (const auto fileName = file.getFileNameWithoutExtension(); probe.name != fileName)
+                    {
+                        probe.name = fileName;
+
+                        if (const auto renamed = probe.save (file); renamed.failed())
+                        {
+                            report (juce::String::fromUTF8 ("내려받은 프리셋의 이름을 파일 이름에 맞추지 못했습니다: ") + renamed.getErrorMessage(), true);
+                            return;
+                        }
+                    }
+
+                    report (juce::String::fromUTF8 ("프리셋 불러옴: ") + probe.name + juce::String::fromUTF8 (" (플러그인 관리 창과 '+ 추가 > 프리셋 불러오기'에 보입니다)"), false);
+
+                    if (presetRestored)
+                        presetRestored();
+
+                    return;
+                }
 
                 // whatever came down must be a session before it is opened as one
                 MixSession probe;
@@ -467,6 +812,7 @@ namespace
                 case columnName:  text = entry.name; break;
                 case columnDate:  text = entry.modified == juce::Time() ? juce::String() : entry.modified.formatted ("%Y-%m-%d %H:%M"); break;
                 case columnSize:  text = juce::File::descriptionOfSizeInBytes (entry.size); break;
+                case columnKind:  text = entry.isPreset ? ko ("프리셋") : ko ("세션"); break;
                 default: break;
             }
 
@@ -496,8 +842,9 @@ namespace
         juce::Label idCaption, passwordCaption, hint, statusLabel;
         juce::TextEditor idEditor, passwordEditor;
         juce::ToggleButton remember;
-        juce::TextButton signInButton, createButton, uploadButton, restoreButton;
+        juce::TextButton signInButton, createButton, uploadButton, uploadPresetsButton, restoreButton;
         juce::TableListBox table;
+        juce::Component::SafePointer<juce::DialogWindow> registerWindow;
 
         JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (BackupContent)
     };

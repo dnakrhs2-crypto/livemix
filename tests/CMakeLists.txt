@@ -22,6 +22,7 @@ target_sources(EnqueueTests PRIVATE
     WebDavBackupTests.cpp
     MixDocumentTests.cpp
     MuteGroupsTests.cpp
+    PluginPresetTests.cpp
     ResamplerTests.cpp
     CueListTests.cpp
     YouTubeDownloaderTests.cpp

@@ -312,6 +312,22 @@ juce::String WebDavBackup::backupPathFor (const juce::String& share, const juce:
     return accountFolder (share, id) + "/" + sanitiseName (pcName) + "_" + when.formatted ("%Y-%m-%d_%H%M%S") + ".livemix";
 }
 
+juce::String WebDavBackup::presetPathFor (const juce::String& share, const juce::String& id, const juce::String& presetName)
+{
+    return accountFolder (share, id) + "/" + juce::String::fromUTF8 ("프리셋_") + sanitiseName (presetName) + ".livemixpreset";
+}
+
+juce::String WebDavBackup::presetNameFromFileName (const juce::String& fileName)
+{
+    auto name = fileName.endsWithIgnoreCase (".livemixpreset") ? fileName.dropLastCharacters (juce::String (".livemixpreset").length()) : fileName;
+    const auto prefix = juce::String::fromUTF8 ("프리셋_");
+
+    if (name.startsWith (prefix))
+        name = name.substring (prefix.length());
+
+    return name.trim();
+}
+
 bool WebDavBackup::parseBackupPath (const juce::String& share, const juce::String& path, juce::String& owner)
 {
     owner.clear();
@@ -330,7 +346,8 @@ bool WebDavBackup::parseBackupPath (const juce::String& share, const juce::Strin
         if (segment.isEmpty() || segment == "." || segment == "..")
             return false;
 
-    if (validateAccountId (segments[0]).isNotEmpty() || ! segments[1].endsWithIgnoreCase (".livemix"))
+    if (validateAccountId (segments[0]).isNotEmpty()
+        || ! (segments[1].endsWithIgnoreCase (".livemix") || segments[1].endsWithIgnoreCase (".livemixpreset")))
         return false;
 
     owner = segments[0];
@@ -582,6 +599,31 @@ juce::Result WebDavBackup::start (const Target& t, const juce::File& file, const
     {
         done = nullptr;
         data.reset();
+        return juce::Result::fail (juce::String::fromUTF8 ("백업 스레드를 시작하지 못했습니다"));
+    }
+
+    return juce::Result::ok();
+}
+
+juce::Result WebDavBackup::startUploads (const Target& t, std::vector<std::pair<juce::File, juce::String>> files, Done onDone)
+{
+    if (const auto result = begin (t, Job::uploadMany, true); result.failed())
+        return result;
+
+    if (files.empty())
+        return juce::Result::fail (juce::String::fromUTF8 ("올릴 파일이 없습니다"));
+
+    for (const auto& f : files)
+        if (! f.first.existsAsFile())
+            return juce::Result::fail (juce::String::fromUTF8 ("파일이 없습니다: ") + f.first.getFullPathName());
+
+    uploads = std::move (files);
+    done = std::move (onDone);
+
+    if (! startThread())
+    {
+        done = nullptr;
+        uploads.clear();
         return juce::Result::fail (juce::String::fromUTF8 ("백업 스레드를 시작하지 못했습니다"));
     }
 
@@ -866,6 +908,11 @@ bool WebDavBackup::collectBackups (const juce::String& owner, std::vector<Entry>
         entry.path = file.path;
         entry.modified = file.modified;
         entry.size = file.size;
+        entry.isPreset = entry.name.endsWithIgnoreCase (".livemixpreset");
+
+        if (entry.isPreset)
+            entry.pc.clear();   // a preset is not of a PC
+
         entries.push_back (std::move (entry));
     }
 
@@ -884,6 +931,7 @@ void WebDavBackup::run()
         case Job::createAccount: runCreateAccount (ok, message); break;
         case Job::signIn:        runSignIn (ok, message, entries, everyone); break;
         case Job::upload:        runUpload (ok, message); break;
+        case Job::uploadMany:    runUploadMany (ok, message); break;
         case Job::download:      runDownload (ok, message); break;
     }
 
@@ -1016,31 +1064,23 @@ void WebDavBackup::runSignIn (bool& ok, juce::String& message, std::vector<Entry
                               : juce::String::fromUTF8 ("백업 ") + juce::String ((int) entries.size()) + juce::String::fromUTF8 ("개");
 }
 
-void WebDavBackup::runUpload (bool& ok, juce::String& message)
+bool WebDavBackup::putFile (const juce::MemoryBlock& bytes, const juce::String& path, juce::String& message)
 {
-    if (! verifyAccount (message))
-        return;
-
-    if (! makeFolder (accountFolder (target.share, target.accountId), message))
-        return;
-
     // the file lands under a temporary name and is renamed onto the final one: a cut-off upload never sits under a
     // backup's name
-    const auto partPath = remotePath + ".part";
+    const auto partPath = path + ".part";
     juce::String error;
-    const int put = request ("PUT", partPath, &data, {}, error);
+    const int put = request ("PUT", partPath, &bytes, {}, error);
 
     if (put == 200 || put == 201 || put == 204)
     {
-        const auto destination = trimmedBase (target.baseUrl) + encodePath (remotePath);
+        const auto destination = trimmedBase (target.baseUrl) + encodePath (path);
         const int moved = request ("MOVE", partPath, nullptr, "Destination: " + destination + "\r\nOverwrite: T\r\n", error);
 
         if (moved == 200 || moved == 201 || moved == 204)
-        {
-            ok = true;
-            message = juce::String::fromUTF8 ("백업 완료: ") + remotePath.fromLastOccurrenceOf ("/", false, false);
-        }
-        else if (moved == 0)
+            return true;
+
+        if (moved == 0)
             message = error;
         else
             message = juce::String::fromUTF8 ("서버가 이름 바꾸기를 거부했습니다 (HTTP ") + juce::String (moved) + "): " + partPath
@@ -1052,6 +1092,59 @@ void WebDavBackup::runUpload (bool& ok, juce::String& message)
         message = error;
     else
         message = httpRefused (put, partPath);
+
+    return false;
+}
+
+void WebDavBackup::runUpload (bool& ok, juce::String& message)
+{
+    if (! verifyAccount (message))
+        return;
+
+    if (! makeFolder (accountFolder (target.share, target.accountId), message))
+        return;
+
+    if (putFile (data, remotePath, message))
+    {
+        ok = true;
+        message = juce::String::fromUTF8 ("백업 완료: ") + remotePath.fromLastOccurrenceOf ("/", false, false);
+    }
+}
+
+void WebDavBackup::runUploadMany (bool& ok, juce::String& message)
+{
+    if (! verifyAccount (message))
+        return;
+
+    if (! makeFolder (accountFolder (target.share, target.accountId), message))
+        return;
+
+    int sent = 0;
+
+    for (const auto& item : uploads)
+    {
+        if (threadShouldExit())
+            return;
+
+        juce::MemoryBlock bytes;
+
+        if (! item.first.loadFileAsData (bytes))
+        {
+            message = juce::String::fromUTF8 ("파일을 읽지 못했습니다: ") + item.first.getFullPathName();
+            return;
+        }
+
+        if (! putFile (bytes, item.second, message))
+        {
+            message = item.first.getFileName() + ": " + message + (sent > 0 ? juce::String::fromUTF8 (" (앞의 ") + juce::String (sent) + juce::String::fromUTF8 ("개는 올라갔습니다)") : juce::String());
+            return;
+        }
+
+        ++sent;
+    }
+
+    ok = true;
+    message = juce::String::fromUTF8 ("플러그인 프리셋 백업 완료: ") + juce::String (sent) + juce::String::fromUTF8 ("개");
 }
 
 void WebDavBackup::runDownload (bool& ok, juce::String& message)

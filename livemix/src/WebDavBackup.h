@@ -41,6 +41,7 @@ public:
         juce::String path;       // the WebDAV path, for the download
         juce::Time modified;
         juce::int64 size = 0;
+        bool isPreset = false;   // a plugin preset (.livemixpreset) rather than a session
     };
 
     /** One line of a PROPFIND answer. */
@@ -80,6 +81,10 @@ public:
     static juce::String accountFolder (const juce::String& share, const juce::String& id);       // <share>/<id>
     /** <share>/<id>/<pc>_<yyyy-MM-dd_HHmmss>.livemix, with the characters a file name cannot carry replaced. */
     static juce::String backupPathFor (const juce::String& share, const juce::String& id, const juce::String& pcName, juce::Time when);
+    /** <share>/<id>/프리셋_<name>.livemixpreset: a plugin preset next to the account's sessions. */
+    static juce::String presetPathFor (const juce::String& share, const juce::String& id, const juce::String& presetName);
+    /** The preset's name out of a remote (or local) preset file name ("프리셋_x.livemixpreset" -> "x"). */
+    static juce::String presetNameFromFileName (const juce::String& fileName);
     /** True when 'path' is exactly <share>/<owner>/<file>.livemix with clean segments (no empty, '.' or '..' ones,
         the owner a valid id); 'owner' receives the account. */
     static bool parseBackupPath (const juce::String& share, const juce::String& path, juce::String& owner);
@@ -103,17 +108,22 @@ public:
     juce::Result start (const Target& target, const juce::File& localFile, const juce::String& remotePath, Done done);
     /** Downloads one backup into 'localFile'. */
     juce::Result startDownload (const Target& target, const juce::String& remotePath, const juce::File& localFile, Done done);
+    /** Uploads several local files (the plugin presets) to their remote paths in one job; the message counts them. */
+    juce::Result startUploads (const Target& target, std::vector<std::pair<juce::File, juce::String>> files, Done done);
     bool isBusy() const noexcept { return isThreadRunning(); }
     /** Aborts a running job and waits for the thread. */
     void cancel();
 
 private:
-    enum class Job { createAccount, signIn, upload, download };
+    enum class Job { createAccount, signIn, upload, download, uploadMany };
 
     void run() override;
     void runCreateAccount (bool& ok, juce::String& message);
     void runSignIn (bool& ok, juce::String& message, std::vector<Entry>& entries, bool& everyone);
     void runUpload (bool& ok, juce::String& message);
+    void runUploadMany (bool& ok, juce::String& message);
+    /** PUT under a temporary name, then MOVE onto 'path'. Worker thread. */
+    bool putFile (const juce::MemoryBlock& bytes, const juce::String& path, juce::String& message);
     void runDownload (bool& ok, juce::String& message);
     juce::Result begin (const Target& target, Job job, bool needsAccount);
     /** One request: the status code, or 0 with 'error' when no connection was made. The answer's body lands in
@@ -134,6 +144,7 @@ private:
     juce::String remotePath;
     juce::File localFile;
     juce::MemoryBlock data;
+    std::vector<std::pair<juce::File, juce::String>> uploads;   // uploadMany: local file, remote path
     Done done;
     SignInDone signInDone;
     juce::CriticalSection activeLock;

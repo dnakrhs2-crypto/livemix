@@ -76,14 +76,9 @@ TopBar::TopBar (MixDocument& doc) : document (doc)
         addAndMakeVisible (b);
     };
 
-    button (sessionButton, ko ("세션"), [this] { if (onSessionMenu) onSessionMenu (&sessionButton); });
     button (fxButton, ko ("FX 채널"), [this] { if (onFxPanel) onFxPanel(); });
-    button (backupButton, ko ("온라인 백업"), [this] { if (onBackup) onBackup(); });
-    backupButton.setColour (juce::TextButton::buttonColourId, Palette::accent);
-    backupButton.setColour (juce::TextButton::textColourOffId, juce::Colours::white);
-    button (settingsButton, ko ("설정"), [this] { if (onSettings) onSettings(); });
-    button (helpButton, ko ("정보"), [this] { if (onHelpMenu) onHelpMenu (&helpButton); });
-    helpButton.setTooltip (ko ("커뮤니티 · 업데이트 확인 · 정보"));
+    button (pluginsButton, ko ("플러그인 관리"), [this] { if (onPluginManager) onPluginManager(); });
+    pluginsButton.setTooltip (ko ("스캔한 플러그인의 사용 여부, VST2 스위치, 플러그인 프리셋"));
 
     refresh();
 }
@@ -140,10 +135,10 @@ void TopBar::setMuteGroups (bool micMuted, bool fxMuted)
 
 TopBar::Mode TopBar::modeFor (int width) const noexcept
 {
-    // one row: the logo (130), the buttons (438), status (up to 230), device (160+), ASIO (56) and a session name of
-    // at least 160 - about 1180; a mute badge takes another 100
+    // one row: the logo (130), the two buttons (242), status (up to 230), device (160+), ASIO (56) and a session name
+    // of at least 160 - about 1020; a mute badge takes another 100
     const int badges = (micMuteBadge.isVisible() ? 1 : 0) + (fxMuteBadge.isVisible() ? 1 : 0);
-    return width >= 1180 + 100 * badges ? Mode::wide : width >= 700 ? Mode::compact : Mode::narrow;
+    return width >= 1020 + 100 * badges ? Mode::wide : width >= 700 ? Mode::compact : Mode::narrow;
 }
 
 int TopBar::preferredHeight (int width) const noexcept
@@ -178,28 +173,19 @@ void TopBar::resized()
 
     if (mode == Mode::narrow)
     {
-        // the five buttons share their own row
+        // the two buttons share their own row
         auto r = row2;
-        const int w = juce::jmax (40, (r.getWidth() - 4 * 6) / 5);
-
-        for (auto* b : { &sessionButton, &fxButton, &backupButton, &settingsButton, &helpButton })
-        {
-            b->setBounds (r.removeFromLeft (w));
-            r.removeFromLeft (6);
-        }
+        const int w = juce::jmax (40, (r.getWidth() - 6) / 2);
+        fxButton.setBounds (r.removeFromLeft (w));
+        r.removeFromLeft (6);
+        pluginsButton.setBounds (r.removeFromLeft (w));
     }
     else
     {
         // the right end of the first row
-        settingsButton.setBounds (row1.removeFromRight (64));
-        row1.removeFromRight (8);
-        helpButton.setBounds (row1.removeFromRight (64));
-        row1.removeFromRight (8);
-        backupButton.setBounds (row1.removeFromRight (100));
+        pluginsButton.setBounds (row1.removeFromRight (120));
         row1.removeFromRight (8);
         fxButton.setBounds (row1.removeFromRight (100));
-        row1.removeFromRight (8);
-        sessionButton.setBounds (row1.removeFromRight (64));
         row1.removeFromRight (14);
     }
 

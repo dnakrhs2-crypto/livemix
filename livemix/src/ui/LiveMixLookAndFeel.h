@@ -60,6 +60,8 @@ public:
     }
 
     juce::Font getPopupMenuFont() override { return juce::Font (juce::FontOptions (pt (16.0f))); }
+    juce::Font getMenuBarFont (juce::MenuBarComponent&, int, const juce::String&) override { return juce::Font (juce::FontOptions (pt (15.0f))); }
+    int getDefaultMenuBarHeight() override { return 30; }
     juce::Font getTextButtonFont (juce::TextButton&, int buttonHeight) override { return juce::Font (juce::FontOptions (juce::jmin (pt (15.0f), (float) buttonHeight * 0.6f), juce::Font::bold)); }
     juce::Font getComboBoxFont (juce::ComboBox&) override { return juce::Font (juce::FontOptions (pt (14.5f))); }
     juce::Font getLabelFont (juce::Label& label) override { return label.getFont(); }

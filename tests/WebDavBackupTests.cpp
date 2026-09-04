@@ -60,6 +60,11 @@ public:
             expect (! WebDavBackup::parseBackupPath ("/backups", "/backups/alice//x.livemix", owner));           // an empty segment
             expect (! WebDavBackup::parseBackupPath ("/backups", "/backups/alice/sub/x.livemix", owner));        // too deep
             expect (! WebDavBackup::parseBackupPath ("/backups", "/backups/alice/x.txt", owner));                // not a session
+            expect (WebDavBackup::parseBackupPath ("/backups", juce::String::fromUTF8 ("/backups/alice/프리셋_보컬.livemixpreset"), owner) && owner == "alice");   // a preset next to the sessions
+            expectEquals (WebDavBackup::presetPathFor ("/backups", "alice", juce::String::fromUTF8 ("보컬 체인")), juce::String::fromUTF8 ("/backups/alice/프리셋_보컬 체인.livemixpreset"));
+            expectEquals (WebDavBackup::presetPathFor ("/backups", "alice", "a/b:c"), juce::String::fromUTF8 ("/backups/alice/프리셋_a_b_c.livemixpreset"));
+            expectEquals (WebDavBackup::presetNameFromFileName (juce::String::fromUTF8 ("프리셋_보컬 체인.livemixpreset")), juce::String::fromUTF8 ("보컬 체인"));
+            expectEquals (WebDavBackup::presetNameFromFileName ("plain.livemixpreset"), juce::String ("plain"));
             expect (! WebDavBackup::parseBackupPath ("/backups", "/backups/accounts/x.livemix", owner));         // the accounts folder
             expect (! WebDavBackup::parseBackupPath ("/backups", "/other/alice/x.livemix", owner));              // another share
             expect (! WebDavBackup::parseBackupPath ("/backups", "/backupsX/alice/x.livemix", owner));           // a share that is a prefix

@@ -8,8 +8,8 @@
 namespace gocue::livemix
 {
 
-/** The bar under the title: logo, session name and state, ASIO device, rate / buffer / latency, CPU load,
-    and the buttons (세션, FX 채널, 온라인 백업, 설정, 도움말). */
+/** The bar under the menu bar: logo, session name and state, ASIO device, rate / buffer / latency, CPU load, the
+    mute badges, and two buttons (FX 채널, 플러그인 관리). The session, backup, settings and help live in the menu bar. */
 class TopBar : public juce::Component
 {
 public:
@@ -31,11 +31,8 @@ public:
     void setMuteGroups (bool micMuted, bool fxMuted);
 
     std::function<void (const juce::String& deviceName)> onDeviceChosen;
-    std::function<void (juce::Component* anchor)> onSessionMenu;
     std::function<void()> onFxPanel;
-    std::function<void()> onBackup;
-    std::function<void()> onSettings;
-    std::function<void (juce::Component* anchor)> onHelpMenu;
+    std::function<void()> onPluginManager;
 
     void resized() override;
     void paint (juce::Graphics& g) override;
@@ -51,7 +48,7 @@ private:
     juce::Label logoMark, logoText, sessionName, sessionState, asioLabel, statusLabel, dspLabel, micMuteBadge, fxMuteBadge;
     juce::ComboBox deviceCombo;
     DspMeter dspMeter;
-    juce::TextButton sessionButton, fxButton, backupButton, settingsButton, helpButton;
+    juce::TextButton fxButton, pluginsButton;
     bool refreshing = false;
 };
 

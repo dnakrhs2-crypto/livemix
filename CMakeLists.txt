@@ -26,6 +26,21 @@ FetchContent_Declare(JUCE
 FetchContent_MakeAvailable(JUCE)
 
 # ---------------------------------------------------------------------------
+# Steinberg VST2 SDK headers (optional, not in the repository): with them LiveMix can host VST2 plugins - off in the
+# app until the operator switches it on. Without the folder the apps are VST3-only.
+#   -DGOCUE_VST2_SDK_DIR=C:/path/with/pluginterfaces/vst2.x
+# ---------------------------------------------------------------------------
+set(GOCUE_VST2_SDK_DIR "C:/Users/claude/SDKs/VST2_SDK" CACHE PATH "Folder holding pluginterfaces/vst2.x/aeffect.h (VST2 hosting); missing = VST3 only")
+set(GOCUE_HAS_VST2 0)
+if(EXISTS "${GOCUE_VST2_SDK_DIR}/pluginterfaces/vst2.x/aeffectx.h")
+    juce_set_vst2_sdk_path("${GOCUE_VST2_SDK_DIR}")
+    set(GOCUE_HAS_VST2 1)
+    message(STATUS "VST2 hosting: SDK at ${GOCUE_VST2_SDK_DIR}")
+else()
+    message(STATUS "VST2 hosting: no SDK at ${GOCUE_VST2_SDK_DIR} - VST3 only")
+endif()
+
+# ---------------------------------------------------------------------------
 # Steinberg ASIO SDK (optional, downloaded separately, never committed)
 #   -DASIO_SDK_DIR=C:/path/to/ASIOSDK   ->  JUCE_ASIO=1
 # ---------------------------------------------------------------------------
@@ -92,7 +107,7 @@ target_compile_definitions(GoCueCore INTERFACE
     JUCE_USE_OGGVORBIS=1
     JUCE_USE_WINDOWS_MEDIA_FORMAT=1
     JUCE_PLUGINHOST_VST3=1
-    JUCE_PLUGINHOST_VST=0
+    JUCE_PLUGINHOST_VST=${GOCUE_HAS_VST2}
     JUCE_PLUGINHOST_LADSPA=0
     JUCE_PLUGINHOST_LV2=0
     JUCE_MODAL_LOOPS_PERMITTED=0
@@ -211,12 +226,13 @@ target_sources(LiveMixCore INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/MixEngine.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/MixDocument.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/MuteGroups.cpp
-    ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/GlobalHotkeys.cpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/GlobalHotkeys.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/PluginPreset.cpp)
 target_include_directories(LiveMixCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src)
 target_link_libraries(LiveMixCore INTERFACE GoCueCore)
 target_sources(LiveMixCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/WebDavBackup.cpp)
 
-set(LIVEMIX_VERSION "0.2.0")   # LiveMix version (the Enqueue version is the project version); not a cache variable: a bump must reach existing build trees
+set(LIVEMIX_VERSION "0.3.0")   # LiveMix version (the Enqueue version is the project version); not a cache variable: a bump must reach existing build trees
 set(LIVEMIX_APPCAST_URL "" CACHE STRING "LiveMix WinSparkle appcast URL (empty disables update checks)")
 
 # The online backup's server account is built into the app from a JSON file that lives outside the repository
@@ -272,6 +288,7 @@ target_sources(LiveMix PRIVATE
     livemix/src/ui/ChainDrawer.cpp
     livemix/src/ui/FxDrawer.cpp
     livemix/src/ui/SettingsDialog.cpp
+    livemix/src/ui/PluginManagerWindow.cpp
     livemix/src/ui/BackupDialog.cpp
     src/app/Updater.cpp
     src/ui/PluginWindows.cpp)

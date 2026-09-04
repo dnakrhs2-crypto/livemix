@@ -11,6 +11,20 @@ namespace gocue::livemix
 
 inline juce::Font captionFont() { return juce::Font (juce::FontOptions (pt (12.5f), juce::Font::bold)); }
 inline juce::Font bodyFont (float size = 14.5f) { return juce::Font (juce::FontOptions (pt (size))); }
+
+/** An alert's text box takes the keyboard once the window is up (typing replaces the suggested text). */
+inline void focusAlertTextEditor (juce::AlertWindow& alert, const juce::String& name)
+{
+    juce::Component::SafePointer<juce::TextEditor> editor (alert.getTextEditor (name));
+    juce::MessageManager::callAsync ([editor]
+    {
+        if (editor != nullptr)
+        {
+            editor->grabKeyboardFocus();
+            editor->selectAll();
+        }
+    });
+}
 inline juce::Font titleFont (float size = 17.0f) { return juce::Font (juce::FontOptions (pt (size), juce::Font::bold)); }
 
 inline void styleCaption (juce::Label& label, const juce::String& text)

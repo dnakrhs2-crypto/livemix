@@ -43,6 +43,13 @@ public:
     juce::String getFxMuteHotkey() const;
     void setFxMuteHotkey (const juce::String& description);
 
+    /** VST2 plugins offered and used (off unless the operator switched it on). */
+    bool getVst2Enabled() const;
+    void setVst2Enabled (bool on);
+    /** The plugins switched off in the manager (PluginHost::keyFor keys). */
+    juce::StringArray getDisabledPlugins() const;
+    void setDisabledPlugins (const juce::StringArray& keys);
+
     juce::String getBackupUrl() const;       // WebDAV base, e.g. https://parkdoomin.synology.me:5006
     void setBackupUrl (const juce::String& url);
     juce::String getBackupFolder() const;    // e.g. /LiveMix 백업

@@ -10,8 +10,9 @@
 namespace gocue
 {
 
-/** VST3 scanning / instantiation: the format manager, the known-plugin list and the
-    factory used to bring saved chains back. Message thread only. */
+/** Plugin scanning / instantiation: the format manager (VST3 always; VST2 when the build has the SDK and the
+    owner switched it on), the known-plugin list, the set of plugins the operator switched off, and the factory used
+    to bring saved chains back. Message thread only. */
 class PluginHost : private juce::ChangeListener
 {
 public:
@@ -25,9 +26,28 @@ public:
     juce::AudioPluginFormatManager& getFormatManager() noexcept { return formatManager; }
     juce::KnownPluginList& getKnownPlugins() noexcept { return knownPlugins; }
     juce::AudioPluginFormat* getVST3Format() const;
+    /** A format by JUCE's name ("VST3", "VST"), or null. */
+    juce::AudioPluginFormat* getFormat (const juce::String& name) const;
 
-    /** Known effect plugins (instruments excluded), sorted by name. */
+    /** The build can host VST2 plugins (the SDK headers were there). */
+    static bool hasVst2Support() noexcept;
+    /** VST2 plugins are offered and instantiated only while this is on (the operator's switch; off by default). */
+    void setVst2Enabled (bool enabled) noexcept { vst2Enabled = enabled; }
+    bool isVst2Enabled() const noexcept { return vst2Enabled; }
+
+    /** The key a plugin is remembered by in the disabled set: format, id and file. */
+    static juce::String keyFor (const juce::PluginDescription& description);
+    /** Plugins the operator switched off stay out of getEffectTypes(). */
+    void setDisabledPlugins (const juce::StringArray& keys);
+    const juce::StringArray& getDisabledPlugins() const noexcept { return disabledPlugins; }
+    void setPluginEnabled (const juce::PluginDescription& description, bool enabled);
+    /** Not switched off, and of a format that is on. */
+    bool isPluginEnabled (const juce::PluginDescription& description) const;
+
+    /** The effect plugins the menus offer: known, enabled, of a format that is on (instruments excluded), by name. */
     juce::Array<juce::PluginDescription> getEffectTypes() const;
+    /** Every known effect plugin, switched off or not, of any format the build knows (for the manager), by name. */
+    juce::Array<juce::PluginDescription> getAllEffectTypes() const;
 
     std::unique_ptr<juce::AudioPluginInstance> createInstance (const juce::PluginDescription& description,
                                                                double sampleRate, int blockSize, juce::String& error);
@@ -52,6 +72,8 @@ private:
 
     juce::AudioPluginFormatManager formatManager;
     juce::KnownPluginList knownPlugins;
+    bool vst2Enabled = false;
+    juce::StringArray disabledPlugins;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PluginHost)
 };

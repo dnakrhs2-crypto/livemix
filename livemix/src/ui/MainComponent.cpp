@@ -11,9 +11,10 @@ namespace gocue::livemix
 {
 
 MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s)
-    : document (doc), settings (s), engine (doc.getEngine()), topBar (doc), masterCard (doc), chainDrawer (doc, windows), fxDrawer (doc)
+    : document (doc), settings (s), engine (doc.getEngine()), topBar (doc), menuBar (this), masterCard (doc), chainDrawer (doc, windows), fxDrawer (doc)
 {
     setOpaque (true);
+    addAndMakeVisible (menuBar);
     addAndMakeVisible (topBar);
 
     viewport.setViewedComponent (&cardsHolder, false);
@@ -45,6 +46,8 @@ MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s)
     chainDrawer.onClose = [this] { showDrawer (Drawer::none); };
     chainDrawer.onOpenPluginManager = [this] { showPluginManager(); };
     chainDrawer.onChainEdited = [this] { refreshValues(); };
+    chainDrawer.onStatus = [this] (const juce::String& text, bool error) { showStatus (text, error); };
+    chainDrawer.onPresetSaved = [this] { if (pluginManagerWindow != nullptr) pluginManagerWindow->refreshPresets(); };
     fxDrawerViewport.setViewedComponent (&fxDrawer, false);
     fxDrawerViewport.setScrollBarsShown (true, false);
     addChildComponent (fxDrawerViewport);
@@ -67,11 +70,8 @@ MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s)
     };
 
     topBar.onDeviceChosen = [this] (const juce::String& name) { chooseDevice (name); };
-    topBar.onSessionMenu = [this] (juce::Component* anchor) { showSessionMenu (anchor); };
     topBar.onFxPanel = [this] { showDrawer (drawer == Drawer::fx ? Drawer::none : Drawer::fx); };
-    topBar.onBackup = [this] { showBackupDialog(); };
-    topBar.onSettings = [this] { showSettingsDialog(); };
-    topBar.onHelpMenu = [this] (juce::Component* anchor) { showHelpMenu (anchor); };
+    topBar.onPluginManager = [this] { showPluginManager(); };
     topBar.onHeightChanged = [this] { resized(); };
 
     statusLeft.setFont (bodyFont (12.5f));
@@ -126,7 +126,7 @@ MainComponent::~MainComponent()
     backup.cancel();
     SettingsDialog::closeIfOpen();
     BackupDialog::closeIfOpen();   // its content refers to the document and the backup thread
-    pluginManagerDialog.deleteAndZero();
+    pluginManagerWindow.reset();
     juce::ModalComponentManager::getInstance()->cancelAllModalComponents();   // open alerts refer to this window and its document
     windows.closeAll();
     engine.forEachChain ([] (PluginChain& chain) { chain.setListener (nullptr); });   // the window manager dies here: no chain may call it afterwards
@@ -279,6 +279,7 @@ void MainComponent::layoutCards()
 void MainComponent::resized()
 {
     auto area = getLocalBounds();
+    menuBar.setBounds (area.removeFromTop (30));
     topBar.setBounds (area.removeFromTop (topBar.preferredHeight (getWidth())));   // two or three rows in a narrow window
 
     if (noticeVisible)
@@ -417,26 +418,16 @@ void MainComponent::addPluginTo (PluginChain* chain, const juce::String& title, 
 
 void MainComponent::showPluginManager()
 {
-    if (pluginManagerDialog != nullptr)
+    if (pluginManagerWindow == nullptr)
     {
-        pluginManagerDialog->toFront (true);
-        return;
+        pluginManagerWindow = std::make_unique<PluginManagerWindow> (engine.getPluginHost(), settings, PluginPreset::defaultFolder());
+        pluginManagerWindow->onVst2Changed = [this] (bool on)
+        {
+            showStatus (on ? ko ("VST2 플러그인 사용: 켬") : ko ("VST2 플러그인 사용: 끔"));
+        };
     }
 
-    auto& host = engine.getPluginHost();
-    auto* list = new juce::PluginListComponent (host.getFormatManager(), host.getKnownPlugins(),
-                                                juce::File::getSpecialLocation (juce::File::userApplicationDataDirectory).getChildFile ("LiveMix").getChildFile ("scan.crashed"),
-                                                nullptr, false);
-    list->setSize (720, 480);
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned (list);
-    options.dialogTitle = ko ("VST3 플러그인 관리");
-    options.dialogBackgroundColour = Palette::card;
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = true;
-    options.componentToCentreAround = this;
-    pluginManagerDialog = options.launchAsync();   // closed with this component: it refers to the engine's plugin list
+    pluginManagerWindow->open();
 }
 
 //==============================================================================
@@ -1001,7 +992,12 @@ bool MainComponent::openFromCommandLine (const juce::String& commandLine)
     return false;
 }
 
-void MainComponent::showSessionMenu (juce::Component* anchor)
+juce::StringArray MainComponent::getMenuBarNames()
+{
+    return { ko ("세션"), ko ("온라인 백업"), ko ("설정"), ko ("도움말") };
+}
+
+juce::PopupMenu MainComponent::getMenuForIndex (int topLevelMenuIndex, const juce::String&)
 {
     juce::PopupMenu menu;
     auto withShortcut = [] (int id, const juce::String& text, const juce::String& shortcut)
@@ -1011,90 +1007,143 @@ void MainComponent::showSessionMenu (juce::Component* anchor)
         item.shortcutKeyDescription = shortcut;
         return item;
     };
-    menu.addItem (withShortcut (1, ko ("새 세션"), "Ctrl+N"));
-    menu.addItem (2, ko ("열기..."));
-    menu.addItem (withShortcut (3, ko ("저장"), "Ctrl+S"));
-    menu.addItem (withShortcut (4, ko ("다른 이름으로 저장..."), "Ctrl+Shift+S"));
-    menu.addSeparator();
-    menu.addItem (5, ko ("세션 이름 바꾸기..."));
 
-    const auto recent = settings.getRecentSessions();
-
-    if (! recent.isEmpty())
+    switch (topLevelMenuIndex)
     {
-        juce::PopupMenu recentMenu;
-
-        for (int i = 0; i < recent.size(); ++i)
-            recentMenu.addItem (100 + i, juce::File (recent[i]).getFileNameWithoutExtension());
-
-        menu.addSeparator();
-        menu.addSubMenu (ko ("최근 세션"), recentMenu);
-    }
-
-    juce::Component::SafePointer<MainComponent> safeThis (this);
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (anchor), [safeThis, recent] (int result)
-    {
-        if (safeThis == nullptr || result == 0)
-            return;
-
-        auto& self = *safeThis;
-
-        switch (result)
+        case 0:
         {
-            case 1: self.newSession(); break;
-            case 2: self.openSessionDialog(); break;
-            case 3: self.saveSession(); break;
-            case 4: self.saveSessionAs(); break;
-            case 5:
+            menu.addItem (withShortcut (1, ko ("새 세션"), "Ctrl+N"));
+            menu.addItem (2, ko ("열기..."));
+            menu.addItem (withShortcut (3, ko ("저장"), "Ctrl+S"));
+            menu.addItem (withShortcut (4, ko ("다른 이름으로 저장..."), "Ctrl+Shift+S"));
+            menu.addSeparator();
+            menu.addItem (5, ko ("세션 이름 바꾸기..."));
+
+            const auto recent = settings.getRecentSessions();
+
+            if (! recent.isEmpty())
             {
-                auto* alert = new juce::AlertWindow (ko ("세션 이름"), ko ("이 세션의 이름 (창 제목과 백업 파일에 씁니다)"), juce::MessageBoxIconType::NoIcon);
-                alert->addTextEditor ("name", self.document.getSession().name, ko ("이름"));
-                alert->addButton (ko ("확인"), 1, juce::KeyPress (juce::KeyPress::returnKey));
-                alert->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
-                alert->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, alert] (int r)
-                {
-                    if (safeThis != nullptr && r == 1)
-                        safeThis->document.setSessionName (alert->getTextEditorContents ("name"));
-                }), true);
-                break;
+                juce::PopupMenu recentMenu;
+
+                for (int i = 0; i < recent.size(); ++i)
+                    recentMenu.addItem (100 + i, juce::File (recent[i]).getFileNameWithoutExtension());
+
+                menu.addSeparator();
+                menu.addSubMenu (ko ("최근 세션"), recentMenu);
             }
 
-            default:
-                if (result >= 100 && result - 100 < recent.size())
-                    self.openSession (juce::File (recent[result - 100]));
-                break;
+            menu.addSeparator();
+            menu.addItem (9, ko ("종료"));
+            break;
         }
-    });
+
+        case 1:
+            menu.addItem (1, ko ("온라인 백업 창 열기..."));
+            break;
+
+        case 2:
+            menu.addItem (1, ko ("설정..."));
+            menu.addItem (2, ko ("플러그인 관리..."));
+            break;
+
+        case 3:
+            menu.addItem (1, ko ("커뮤니티 (카카오톡 오픈채팅)"));
+            menu.addItem (2, ko ("업데이트 확인..."), Updater::isAvailable());
+            menu.addSeparator();
+            menu.addItem (3, ko ("LiveMix 정보"));
+            break;
+
+        default:
+            break;
+    }
+
+    return menu;
 }
 
-void MainComponent::showHelpMenu (juce::Component* anchor)
+void MainComponent::menuItemSelected (int id, int topLevelMenuIndex)
 {
-    juce::PopupMenu menu;
-    menu.addItem (1, ko ("커뮤니티 (카카오톡 오픈채팅)"));
-    menu.addItem (2, ko ("업데이트 확인..."), Updater::isAvailable());
-    menu.addSeparator();
-    menu.addItem (3, ko ("LiveMix 정보"));
-
-    juce::Component::SafePointer<MainComponent> safeThis (this);
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetComponent (anchor), [safeThis] (int result)
+    switch (topLevelMenuIndex)
     {
-        if (safeThis == nullptr)
-            return;
+        case 0:
+            switch (id)
+            {
+                case 1: newSession(); break;
+                case 2: openSessionDialog(); break;
+                case 3: saveSession(); break;
+                case 4: saveSessionAs(); break;
+                case 5: renameSessionDialog(); break;
+                case 9:
+                    if (auto* app = juce::JUCEApplication::getInstance())
+                        app->systemRequestedQuit();
+                    break;
+                default:
+                    if (id >= 100)
+                    {
+                        const auto recent = settings.getRecentSessions();
 
-        if (result == 1)
-            juce::URL (Links::feedbackChat).launchInDefaultBrowser();
-        else if (result == 2)
-            Updater::checkForUpdatesWithUI();
-        else if (result == 3)
-            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "LiveMix " + juce::JUCEApplication::getInstance()->getApplicationVersion(),
-                                                    ko ("방송용 라이브 마이크 VST3 호스트\n곰튀김\n\n") + "VST is a trademark of Steinberg Media Technologies GmbH.", ko ("확인"));
-    });
+                        if (id - 100 < recent.size())
+                            openSession (juce::File (recent[id - 100]));
+                    }
+                    break;
+            }
+            break;
+
+        case 1:
+            if (id == 1)
+                showBackupDialog();
+            break;
+
+        case 2:
+            if (id == 1)
+                showSettingsDialog();
+            else if (id == 2)
+                showPluginManager();
+            break;
+
+        case 3:
+            if (id == 1)
+                juce::URL (Links::feedbackChat).launchInDefaultBrowser();
+            else if (id == 2)
+                Updater::checkForUpdatesWithUI();
+            else if (id == 3)
+                showAbout();
+            break;
+
+        default:
+            break;
+    }
+}
+
+void MainComponent::renameSessionDialog()
+{
+    auto* alert = new juce::AlertWindow (ko ("세션 이름"), ko ("이 세션의 이름 (창 제목과 백업 파일에 씁니다)"), juce::MessageBoxIconType::NoIcon);
+    alert->addTextEditor ("name", document.getSession().name, ko ("이름"));
+    alert->addButton (ko ("확인"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    alert->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, alert] (int r)
+    {
+        if (safeThis != nullptr && r == 1)
+            safeThis->document.setSessionName (alert->getTextEditorContents ("name"));
+    }), true);
+    focusAlertTextEditor (*alert, "name");
+}
+
+void MainComponent::showAbout()
+{
+    juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::InfoIcon, "LiveMix " + juce::JUCEApplication::getInstance()->getApplicationVersion(),
+                                            ko ("방송용 라이브 마이크 VST3 · VST2 호스트\n곰튀김\n\n") + "VST is a trademark of Steinberg Media Technologies GmbH.", ko ("확인"));
 }
 
 void MainComponent::showBackupDialog()
 {
     juce::Component::SafePointer<MainComponent> safeThis (this);
     BackupDialog::Callbacks callbacks;
+    callbacks.presetRestored = [safeThis]
+    {
+        if (safeThis != nullptr && safeThis->pluginManagerWindow != nullptr)
+            safeThis->pluginManagerWindow->refreshPresets();
+    };
     callbacks.status = [safeThis] (const juce::String& message, bool error)
     {
         if (safeThis != nullptr)

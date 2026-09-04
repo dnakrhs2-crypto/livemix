@@ -8,6 +8,8 @@
 #include "MasterCard.h"
 #include "MixDocument.h"
 #include "MuteGroups.h"
+#include "PluginManagerWindow.h"
+#include "PluginPreset.h"
 #include "TopBar.h"
 #include "WebDavBackup.h"
 #include "ui/PluginWindows.h"
@@ -24,6 +26,7 @@ namespace gocue::livemix
     Everything the operator does goes through the document; the timer feeds the meters. */
 class MainComponent : public juce::Component,
                       public juce::KeyListener,   // Ctrl+S / Ctrl+Shift+S / Ctrl+N, registered on the window
+                      public juce::MenuBarModel,  // 세션 · 온라인 백업 · 설정 · 도움말
                       private juce::Timer
 {
 public:
@@ -72,6 +75,11 @@ public:
     using juce::Component::keyPressed;
     bool keyPressed (const juce::KeyPress& key, juce::Component* origin) override;
 
+    // MenuBarModel
+    juce::StringArray getMenuBarNames() override;
+    juce::PopupMenu getMenuForIndex (int topLevelMenuIndex, const juce::String& menuName) override;
+    void menuItemSelected (int menuItemID, int topLevelMenuIndex) override;
+
 private:
     enum class Drawer { none, chain, fx };
 
@@ -82,8 +90,8 @@ private:
     void showDrawer (Drawer which);
     void openChainFor (PluginChain* chain, const juce::String& title);
     void addPluginTo (PluginChain* chain, const juce::String& title, juce::Component* anchor);
-    void showSessionMenu (juce::Component* anchor);
-    void showHelpMenu (juce::Component* anchor);
+    void renameSessionDialog();
+    void showAbout();
     void showBackupDialog();
     void showSettingsDialog();
     void registerHotkeys();      // from the settings; a refused key goes to the status line
@@ -108,11 +116,12 @@ private:
     GlobalHotkeys hotkeys;
     PluginWindowManager windows;
     WebDavBackup backup;
-    juce::Component::SafePointer<juce::DialogWindow> pluginManagerDialog;
+    std::unique_ptr<PluginManagerWindow> pluginManagerWindow;   // made on first use, hidden on close
     bool safeMode = false;
     juce::StringArray faultedPlugins, stalledPlugins;   // told once each, kept in the notice until the session changes
 
     TopBar topBar;
+    juce::MenuBarComponent menuBar;
     juce::Viewport viewport;
     juce::Component cardsHolder;
     std::vector<std::unique_ptr<ChannelCard>> cards;

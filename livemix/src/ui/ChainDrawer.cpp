@@ -220,17 +220,28 @@ void ChainDrawer::showAddMenu (juce::Rectangle<int> screenArea)
     juce::PopupMenu menu;
 
     if (types.isEmpty())
-        menu.addItem (1, ko ("스캔된 VST3 플러그인이 없습니다 - 플러그인 관리에서 스캔..."));
+        menu.addItem (1, ko ("쓸 수 있는 플러그인이 없습니다 - 플러그인 관리에서 스캔하거나 '사용'을 켜세요..."));
     else
     {
         juce::KnownPluginList::addToMenu (menu, types, juce::KnownPluginList::sortByManufacturer);   // one submenu per maker
         menu.addSeparator();
-        menu.addItem (1, ko ("플러그인 관리 (스캔)..."));
+        menu.addItem (1, ko ("플러그인 관리 (스캔, 사용 여부, 프리셋)..."));
     }
+
+    // the presets of this PC: one goes into the chain whole; the chain as it is can become one
+    const auto presets = PluginPreset::listFolder (PluginPreset::defaultFolder());
+    juce::PopupMenu presetMenu;
+
+    for (size_t i = 0; i < presets.size(); ++i)
+        presetMenu.addItem (1000 + (int) i, presets[i].name + "   (" + presets[i].summary() + ")");
+
+    menu.addSeparator();
+    menu.addSubMenu (ko ("프리셋 불러오기"), presetMenu, ! presets.empty());
+    menu.addItem (2, ko ("이 체인을 프리셋으로 저장..."), chain->getNumSlots() > 0);
 
     juce::Component::SafePointer<ChainDrawer> safeThis (this);
     const int forRevision = revision;
-    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea), [safeThis, types, forRevision] (int result)
+    menu.showMenuAsync (juce::PopupMenu::Options().withTargetScreenArea (screenArea), [safeThis, types, presets, forRevision] (int result)
     {
         if (safeThis == nullptr || result == 0 || safeThis->revision != forRevision)
             return;
@@ -243,11 +254,163 @@ void ChainDrawer::showAddMenu (juce::Rectangle<int> screenArea)
             return;
         }
 
+        if (result == 2)
+        {
+            safeThis->saveChainAsPreset();
+            return;
+        }
+
+        if (result >= 1000 && result - 1000 < (int) presets.size())
+        {
+            safeThis->loadPreset (presets[(size_t) (result - 1000)]);
+            return;
+        }
+
         const int index = juce::KnownPluginList::getIndexChosenByMenu (types, result);
 
         if (index >= 0)
             safeThis->addPlugin (types[index]);
     });
+}
+
+void ChainDrawer::loadPreset (const PluginPreset& preset)
+{
+    if (chain == nullptr)
+        return;
+
+    if (chain->getNumSlots() == 0)
+    {
+        applyPreset (preset, true);
+        return;
+    }
+
+    juce::Component::SafePointer<ChainDrawer> safeThis (this);
+    const int forRevision = revision;
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                      .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                                      .withTitle (ko ("프리셋 불러오기"))
+                                      .withMessage (ko ("'") + preset.name + ko ("' 프리셋을 어떻게 넣을까요?\n\n바꾸기: 지금 체인을 지우고 프리셋으로\n뒤에 추가: 지금 체인 뒤에 이어서"))
+                                      .withButton (ko ("바꾸기"))
+                                      .withButton (ko ("뒤에 추가"))
+                                      .withButton (ko ("취소")),
+                                  [safeThis, preset, forRevision] (int result)
+    {
+        if (safeThis == nullptr || safeThis->revision != forRevision)
+            return;
+
+        if (result == 1)
+            safeThis->applyPreset (preset, true);
+        else if (result == 2)
+            safeThis->applyPreset (preset, false);
+    });
+}
+
+void ChainDrawer::applyPreset (const PluginPreset& preset, bool replace)
+{
+    if (chain == nullptr)
+        return;
+
+    auto& engine = document.getEngine();
+    auto& host = engine.getPluginHost();
+    juce::StringArray errors;
+
+    if (replace)
+    {
+        errors = chain->restore (preset.plugins, host.makeFactory (engine.getSampleRate(), engine.getBlockSize()));
+    }
+    else
+    {
+        for (const auto& state : preset.plugins)
+        {
+            if (chain->getNumSlots() >= MixSession::maxChainSlots)
+            {
+                errors.add (state.name + ": " + ko ("체인이 가득 찼습니다 (") + juce::String (MixSession::maxChainSlots) + ko ("개)"));
+                continue;
+            }
+
+            juce::String error;
+            auto instance = host.createInstance (state, engine.getSampleRate(), engine.getBlockSize(), error);
+
+            if (instance == nullptr)
+            {
+                chain->addMissingSlot (state);   // the slot stays, empty, like a missing plugin in a session
+                errors.add (state.name + ": " + (error.isNotEmpty() ? error : ko ("이 PC에 없는 플러그인입니다 (자리는 비워 둡니다)")));
+                continue;
+            }
+
+            chain->addPlugin (std::move (instance), state);
+        }
+    }
+
+    refresh();
+    document.markDirty();
+
+    if (onChainEdited)
+        onChainEdited();
+
+    if (onStatus)
+        onStatus (ko ("프리셋 넣음: ") + preset.name + " (" + preset.summary() + ")", false);
+
+    if (! errors.isEmpty())
+        juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                          .withIconType (juce::MessageBoxIconType::WarningIcon)
+                                          .withTitle (ko ("프리셋의 일부를 넣지 못했습니다"))
+                                          .withMessage (errors.joinIntoString ("\n"))
+                                          .withButton (ko ("확인")),
+                                      [] (int) {});
+}
+
+void ChainDrawer::saveChainAsPreset()
+{
+    if (chain == nullptr || chain->getNumSlots() == 0)
+        return;
+
+    auto* alert = new juce::AlertWindow (ko ("체인을 프리셋으로 저장"), ko ("이 체인의 플러그인과 지금 설정이 프리셋이 됩니다. 이름:"), juce::MessageBoxIconType::NoIcon);
+    alert->addTextEditor ("name", ownerTitle, ko ("이름"));
+    alert->addButton (ko ("저장"), 1, juce::KeyPress (juce::KeyPress::returnKey));
+    alert->addButton (ko ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
+    juce::Component::SafePointer<ChainDrawer> safeThis (this);
+    const int forRevision = revision;
+    alert->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, alert, forRevision] (int r)
+    {
+        if (safeThis == nullptr || r != 1 || safeThis->revision != forRevision || safeThis->chain == nullptr)
+            return;
+
+        const auto name = alert->getTextEditorContents ("name").trim();
+
+        if (name.isEmpty())
+            return;
+
+        PluginPreset preset;
+        preset.name = name;
+        bool complete = true;
+        preset.plugins = safeThis->chain->getStates (&complete);
+
+        for (auto& p : preset.plugins)
+            p.bypassed = false;   // a preset carries the plugins and their settings, not a momentary bypass
+
+        const auto folder = PluginPreset::defaultFolder();
+        auto file = PluginPreset::fileFor (name, folder);
+
+        if (file.existsAsFile())
+        {
+            file = file.getNonexistentSibling (true);   // "이름(2)": the preset already there is not touched
+            preset.name = file.getFileNameWithoutExtension();
+        }
+
+        if (const auto result = preset.save (file); result.failed())
+        {
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, ko ("프리셋을 저장하지 못했습니다"), result.getErrorMessage(), ko ("확인"));
+            return;
+        }
+
+        if (safeThis->onStatus)
+            safeThis->onStatus (ko ("프리셋 저장: ") + preset.name + (complete ? juce::String() : ko (" (일부 플러그인의 설정은 읽지 못했습니다)")), ! complete);
+
+        if (safeThis->onPresetSaved)
+            safeThis->onPresetSaved();
+    }), true);
+    focusAlertTextEditor (*alert, "name");
 }
 
 void ChainDrawer::addPlugin (const juce::PluginDescription& description)

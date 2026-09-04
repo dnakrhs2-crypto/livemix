@@ -30,6 +30,8 @@ namespace Keys
     constexpr const char* lastRunVersion = "lastRunVersion";
     constexpr const char* micMuteHotkey = "micMuteHotkey";
     constexpr const char* fxMuteHotkey = "fxMuteHotkey";
+    constexpr const char* vst2Enabled = "vst2Enabled";
+    constexpr const char* disabledPlugins = "disabledPlugins";
 }
 
 LiveMixSettings::LiveMixSettings()
@@ -105,6 +107,19 @@ juce::String LiveMixSettings::getMicMuteHotkey() const { return settings->getVal
 void LiveMixSettings::setMicMuteHotkey (const juce::String& description) { settings->setValue (Keys::micMuteHotkey, description.trim()); }
 juce::String LiveMixSettings::getFxMuteHotkey() const { return settings->getValue (Keys::fxMuteHotkey); }
 void LiveMixSettings::setFxMuteHotkey (const juce::String& description) { settings->setValue (Keys::fxMuteHotkey, description.trim()); }
+
+bool LiveMixSettings::getVst2Enabled() const { return settings->getBoolValue (Keys::vst2Enabled, false); }
+void LiveMixSettings::setVst2Enabled (bool on) { settings->setValue (Keys::vst2Enabled, on); }
+
+juce::StringArray LiveMixSettings::getDisabledPlugins() const
+{
+    juce::StringArray keys;
+    keys.addLines (settings->getValue (Keys::disabledPlugins));
+    keys.removeEmptyStrings();
+    return keys;
+}
+
+void LiveMixSettings::setDisabledPlugins (const juce::StringArray& keys) { settings->setValue (Keys::disabledPlugins, keys.joinIntoString ("\n")); }
 
 juce::String LiveMixSettings::getBackupUrl() const { return settings->getValue (Keys::backupUrl, "https://parkdoomin.synology.me:5006"); }   // the credential key's server part (the server itself is built in)
 void LiveMixSettings::setBackupUrl (const juce::String& url) { settings->setValue (Keys::backupUrl, url.trim()); }

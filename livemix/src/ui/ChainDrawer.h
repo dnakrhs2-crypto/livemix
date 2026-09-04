@@ -1,6 +1,7 @@
 #pragma once
 
 #include "MixDocument.h"
+#include "PluginPreset.h"
 #include "Widgets.h"
 #include "ui/PluginWindows.h"
 
@@ -28,6 +29,8 @@ public:
     std::function<void()> onClose;
     std::function<void()> onOpenPluginManager;
     std::function<void()> onChainEdited;   // after every edit (the document marks itself dirty)
+    std::function<void (const juce::String& text, bool error)> onStatus;   // a word for the status line (a preset saved)
+    std::function<void()> onPresetSaved;   // a preset file was written: the plugin manager's list refreshes
 
     void showAddMenu (juce::Component* anchor);
     /** The same menu, next to an area of the screen (a button's bounds captured before a layout moved it). */
@@ -45,6 +48,11 @@ private:
     void moveSlot (int from, int to);
     void toggleBypass (int index);
     void layoutRows();
+    /** A preset into this chain: asked whether to replace or append when the chain is not empty. */
+    void loadPreset (const PluginPreset& preset);
+    void applyPreset (const PluginPreset& preset, bool replace);
+    /** The chain as it is, states included, under a name asked for. */
+    void saveChainAsPreset();
 
     MixDocument& document;
     PluginWindowManager& windows;
