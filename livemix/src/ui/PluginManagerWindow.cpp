@@ -662,6 +662,8 @@ private:
                 builder->setTypes (host.getEffectTypes());
     }
 
+    bool isSearching() const { return pluginSearch.getText().trim().isNotEmpty(); }   // a query that happens to match everything is still a search
+
     /** The table shows the plugins the search box matches. The selection stays on the same plugin when it is still
         shown (a row number would point at another plugin once rows are hidden), otherwise nothing is selected. */
     void applyPluginSearch()
@@ -682,8 +684,8 @@ private:
 
         pluginTable.repaint();
         removeButton.setEnabled (pluginTable.getSelectedRow() >= 0);
-        pluginCount.setText (types.size() == allTypes.size() ? ko ("플러그인 ") + juce::String (allTypes.size()) + ko ("개")
-                                                             : ko ("검색 결과 ") + juce::String (types.size()) + ko ("개 / 전체 ") + juce::String (allTypes.size()) + ko ("개"),
+        pluginCount.setText (! isSearching() ? ko ("플러그인 ") + juce::String (allTypes.size()) + ko ("개")
+                                             : ko ("검색 결과 ") + juce::String (types.size()) + ko ("개 / 전체 ") + juce::String (allTypes.size()) + ko ("개"),
                              juce::dontSendNotification);
     }
 
@@ -767,7 +769,7 @@ private:
         pluginTable.repaint();
         refreshBuilder();
 
-        if (types.size() != allTypes.size())
+        if (isSearching())
             setStatus (ko ("검색 결과 ") + juce::String (types.size()) + ko ("개를 '사용'으로 켰습니다 (검색을 지우면 전부 보입니다)"), false);
     }
 

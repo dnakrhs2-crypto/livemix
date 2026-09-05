@@ -177,6 +177,17 @@ void LoudnessStats::Histogram::add (double lufs, double summedPower)
     powerSum += summedPower;
 }
 
+double LoudnessStats::Histogram::binLoudness (int bin) const noexcept
+{
+    const auto c = counts[(size_t) bin];
+
+    if (c == 0)
+        return -1000.0;   // nothing there: under every gate
+
+    const auto l = loudnessOf (power[(size_t) bin] / (double) c);
+    return l.valid ? l.value : -1000.0;
+}
+
 LoudnessStats::LoudnessStats()
 {
     reset();
@@ -231,13 +242,11 @@ void LoudnessStats::addSubBlock (double meanSquareLeft, double meanSquareRight)
         const double p = windowPower (momentaryBlocks);
         const auto m = loudnessOf (p);
 
-        if (m.valid && m.value >= absoluteGate)
-        {
+        if (m.valid && m.value > absoluteGate)   // the absolute gate (strict, as the standard has it): into the integrated distribution
             integratedHist.add (m.value, p);
 
-            if (! maxM.valid || m.value > maxM.value)
-                maxM = m;
-        }
+        if (m.valid && m.value >= shownFloor && (! maxM.valid || m.value > maxM.value))   // the maximum of what is shown: ungated
+            maxM = m;
     }
 
     if (filled >= shortTermBlocks)
@@ -245,13 +254,11 @@ void LoudnessStats::addSubBlock (double meanSquareLeft, double meanSquareRight)
         const double p = windowPower (shortTermBlocks);
         const auto s = loudnessOf (p);
 
-        if (s.valid && s.value >= absoluteGate)
-        {
+        if (s.valid && s.value > absoluteGate)
             rangeHist.add (s.value, p);
 
-            if (! maxS.valid || s.value > maxS.value)
-                maxS = s;
-        }
+        if (s.valid && s.value >= shownFloor && (! maxS.valid || s.value > maxS.value))
+            maxS = s;
     }
 }
 
@@ -261,7 +268,7 @@ LoudnessValue LoudnessStats::momentary() const
         return {};
 
     const auto m = loudnessOf (windowPower (momentaryBlocks));
-    return m.valid && m.value >= absoluteGate - 30.0 ? m : LoudnessValue {};   // -100 and below reads as nothing
+    return m.valid && m.value >= shownFloor ? m : LoudnessValue {};   // -100 and below reads as nothing
 }
 
 LoudnessValue LoudnessStats::shortTerm() const
@@ -270,7 +277,7 @@ LoudnessValue LoudnessStats::shortTerm() const
         return {};
 
     const auto s = loudnessOf (windowPower (shortTermBlocks));
-    return s.valid && s.value >= absoluteGate - 30.0 ? s : LoudnessValue {};
+    return s.valid && s.value >= shownFloor ? s : LoudnessValue {};
 }
 
 LoudnessValue LoudnessStats::integrated() const
@@ -289,7 +296,7 @@ LoudnessValue LoudnessStats::integrated() const
     double p = 0.0;
 
     for (int bin = 0; bin < Histogram::numBins; ++bin)
-        if (integratedHist.counts[(size_t) bin] > 0 && Histogram::lowerEdge (bin) >= threshold)
+        if (integratedHist.binLoudness (bin) >= threshold)   // occupied bins by the loudness of their own mean power (the end bins gather what is beyond the range)
         {
             n += integratedHist.counts[(size_t) bin];
             p += integratedHist.power[(size_t) bin];
@@ -315,32 +322,34 @@ LoudnessValue LoudnessStats::loudnessRange() const
     juce::int64 n = 0;
 
     for (int bin = 0; bin < Histogram::numBins; ++bin)
-        if (Histogram::lowerEdge (bin) >= threshold)
+        if (rangeHist.binLoudness (bin) >= threshold)
             n += rangeHist.counts[(size_t) bin];
 
     if (n == 0)
         return {};
 
-    // the 10th and 95th percentiles of the gated distribution (bin centres)
-    const double low = 0.10 * (double) n, high = 0.95 * (double) n;
+    // the 10th and 95th percentiles of the gated distribution: the values at the zero-based ranks round ((n - 1) p)
+    // of the sorted values (EBU Tech 3342's reference), read off the cumulative histogram (bin centres)
+    const auto rankLow = (juce::int64) std::llround ((double) (n - 1) * 0.10);
+    const auto rankHigh = (juce::int64) std::llround ((double) (n - 1) * 0.95);
     juce::int64 seen = 0;
     double p10 = 0.0, p95 = 0.0;
     bool have10 = false, have95 = false;
 
     for (int bin = 0; bin < Histogram::numBins && ! have95; ++bin)
     {
-        if (Histogram::lowerEdge (bin) < threshold || rangeHist.counts[(size_t) bin] == 0)
+        if (rangeHist.counts[(size_t) bin] == 0 || rangeHist.binLoudness (bin) < threshold)
             continue;
 
         seen += rangeHist.counts[(size_t) bin];
 
-        if (! have10 && (double) seen >= low)
+        if (! have10 && seen > rankLow)
         {
             p10 = Histogram::centre (bin);
             have10 = true;
         }
 
-        if (! have95 && (double) seen >= high)
+        if (! have95 && seen > rankHigh)
         {
             p95 = Histogram::centre (bin);
             have95 = true;
@@ -354,6 +363,7 @@ LoudnessValue LoudnessStats::loudnessRange() const
 LoudnessMeter::LoudnessMeter()
 {
     fifoData.resize ((size_t) fifoSize);
+    TruePeakDetector::getTaps();   // built here, on the message thread: never inside the first audio callback
     prepare (48000.0);
 }
 
@@ -387,23 +397,40 @@ void LoudnessMeter::process (const float* left, const float* right, int numSampl
         truePeakWarmup = TruePeakDetector::tapsPerPhase;   // the interpolators' memory is of the sound before the reset: not this measurement's peak
     }
 
+    const bool stereo = right != nullptr;   // one channel: the other is absent, not a copy (a copy would read 3 LU high)
+
     for (int i = 0; i < numSamples; ++i)
     {
         float l = left[i];
-        float r = right != nullptr ? right[i] : l;
+        float r = stereo ? right[i] : 0.0f;
 
         if (! std::isfinite (l)) l = 0.0f;   // a NaN would poison every number until the reset
         if (! std::isfinite (r)) r = 0.0f;
 
-        const double kl = kLeft.process (l), kr = kRight.process (r);
+        const double kl = kLeft.process (l);
         sumLeft += kl * kl;
-        sumRight += kr * kr;
-        const float peak = juce::jmax (tpLeft.process (l), tpRight.process (r));
+        float interpolated = tpLeft.process (l);
+        float raw = std::abs (l);
 
+        if (stereo)
+        {
+            const double kr = kRight.process (r);
+            sumRight += kr * kr;
+            interpolated = juce::jmax (interpolated, tpRight.process (r));
+            raw = juce::jmax (raw, std::abs (r));
+        }
+
+        // right after a reset the interpolators still hold the sound before it: the samples themselves count, the
+        // points between them not until that memory has passed through
         if (truePeakWarmup > 0)
+        {
             --truePeakWarmup;
+            blockPeak = juce::jmax (blockPeak, raw);
+        }
         else
-            blockPeak = juce::jmax (blockPeak, peak);
+        {
+            blockPeak = juce::jmax (blockPeak, interpolated);
+        }
 
         if (++count >= samplesPerSubBlock)
         {
@@ -420,9 +447,12 @@ void LoudnessMeter::process (const float* left, const float* right, int numSampl
                 dropped.fetch_add (1, std::memory_order_relaxed);
             }
 
-            float cur = truePeak.load (std::memory_order_relaxed);
+            // the peak goes into its own generation only: a reset that has begun (the word already carries the next
+            // generation) or finished makes this block's peak a thing of the old measurement
+            auto cur = truePeakWord.load (std::memory_order_relaxed);
 
-            while (blockPeak > cur && ! truePeak.compare_exchange_weak (cur, blockPeak, std::memory_order_relaxed)) {}
+            while (generationOf (cur) == audioGeneration && blockPeak > unpackPeak (cur)
+                   && ! truePeakWord.compare_exchange_weak (cur, packPeak (audioGeneration, blockPeak), std::memory_order_relaxed)) {}
 
             sumLeft = sumRight = 0.0;
             count = 0;
@@ -433,8 +463,11 @@ void LoudnessMeter::process (const float* left, const float* right, int numSampl
 
 void LoudnessMeter::reset()
 {
-    generation.fetch_add (1, std::memory_order_acq_rel);
-    truePeak.store (0.0f, std::memory_order_relaxed);
+    // the peak word takes the next generation first: from here a block of the old generation cannot publish its peak;
+    // then the generation itself, which the audio thread follows at its next block
+    const unsigned next = generation.load (std::memory_order_acquire) + 1;
+    truePeakWord.store (packPeak (next, 0.0f), std::memory_order_release);
+    generation.store (next, std::memory_order_release);
     dropped.store (0, std::memory_order_relaxed);
     stats.reset();
 }
@@ -463,7 +496,8 @@ void LoudnessMeter::poll()
 
 LoudnessValue LoudnessMeter::truePeakMax() const noexcept
 {
-    const float p = truePeak.load (std::memory_order_relaxed);
+    const auto word = truePeakWord.load (std::memory_order_acquire);
+    const float p = generationOf (word) == generation.load (std::memory_order_acquire) ? unpackPeak (word) : 0.0f;
 
     if (! (p > 1e-7f))
         return {};

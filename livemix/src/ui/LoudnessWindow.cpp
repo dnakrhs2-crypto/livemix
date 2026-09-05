@@ -158,9 +158,16 @@ private:
 
         if (blocks != lastBlocks)
         {
+            // one point per sub-block that arrived, so a tick that came late keeps the time axis honest (100 ms a point)
             const auto s = st.shortTerm();
-            history[(size_t) historyPos] = s.valid ? (float) s.value : nothing;
-            historyPos = (historyPos + 1) % historyLength;
+            const auto arrived = (int) juce::jmin ((juce::int64) historyLength, blocks - lastBlocks);
+
+            for (int k = 0; k < arrived; ++k)
+            {
+                history[(size_t) historyPos] = s.valid ? (float) s.value : nothing;
+                historyPos = (historyPos + 1) % historyLength;
+            }
+
             lastBlocks = blocks;
         }
 
@@ -286,7 +293,7 @@ private:
             auto row = area.removeFromTop (valueRowHeight (30.0f));
             auto left = row.removeFromLeft (row.getWidth() / 2);
             paintValue (g, left, ko ("단기 (S, 3초)"), valueText (s), "LUFS", colourFor (s), 30.0f);
-            paintValue (g, row, ko ("순간 (M)"), valueText (m), "LUFS", m.valid ? Palette::text : Palette::dimText, 30.0f);
+            paintValue (g, row, ko ("순간 (M)"), valueText (m), "LUFS", colourFor (m), 30.0f);
         }
         separator();
 

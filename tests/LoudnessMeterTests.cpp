@@ -88,12 +88,29 @@ public:
             expectWithinAbsoluteError (st.loudnessRange().value, 0.0, 0.2);   // one level: no range
         }
 
-        beginTest ("one channel only reads 3 dB less: -23 dBFS on the left alone is -26.0 LUFS");
+        beginTest ("one channel only reads 3 dB less: -23 dBFS on the left alone is -26.0 LUFS, a mono block (no right) the same");
         {
             LoudnessMeter meter;
             meter.prepare (fs);
             feedSine (meter, 10.0, -23.0, -300.0);
             expectWithinAbsoluteError (meter.getStats().integrated().value, -26.0, 0.1);
+
+            LoudnessMeter mono;
+            mono.prepare (fs);
+            const int total = (int) (10.0 * fs);
+            std::vector<float> l (480);
+
+            for (int done = 0, n = 0; done < total; done += 480)
+            {
+                for (int i = 0; i < 480; ++i, ++n)
+                    l[(size_t) i] = (float) (std::pow (10.0, -23.0 / 20.0) * std::sin (juce::MathConstants<double>::twoPi * 1000.0 * n / fs));
+
+                mono.process (l.data(), nullptr, 480);
+                mono.poll();
+            }
+
+            expectWithinAbsoluteError (mono.getStats().integrated().value, -26.0, 0.1);   // not a copy on both sides (-23)
+            expectWithinAbsoluteError (mono.truePeakMax().value, -23.0, 0.1);
         }
 
         beginTest ("the relative gate: quiet parts 13 LU under the loud part do not pull the integrated value down (Tech 3341 case 3)");
@@ -142,6 +159,19 @@ public:
             expectWithinAbsoluteError (meter.getStats().maxMomentary().value, -30.0, 0.1);
             expectWithinAbsoluteError (meter.truePeakMax().value, -30.0, 0.1);
             expectWithinAbsoluteError (meter.getStats().elapsedSeconds(), 5.0, 0.11);
+
+            // an impulse right after a reset is not lost (the samples count from the first one; only the interpolation waits)
+            meter.reset();
+            std::vector<float> l (480, 0.0f), r (480, 0.0f);
+            l[3] = 0.5f;
+            meter.process (l.data(), r.data(), 480);
+
+            for (int i = 0; i < 12; ++i)
+                meter.process (r.data(), r.data(), 480);   // silence to the end of the sub-block
+
+            meter.poll();
+            expect (meter.truePeakMax().valid);
+            expectWithinAbsoluteError (meter.truePeakMax().value, -6.02, 0.05);
         }
 
         beginTest ("loudness range: 20 s at -20 then 20 s at -30 is 10 LU (Tech 3342), one level is 0");

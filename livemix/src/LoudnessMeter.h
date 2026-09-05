@@ -5,6 +5,7 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <cstring>
 #include <vector>
 
 namespace gocue::livemix
@@ -80,6 +81,7 @@ public:
     static constexpr double absoluteGate = -70.0;
     static constexpr double relativeGateIntegrated = -10.0;
     static constexpr double relativeGateRange = -20.0;
+    static constexpr double shownFloor = -100.0;   // M and S (ungated) read as nothing below this
 
     LoudnessStats();
 
@@ -116,6 +118,9 @@ private:
         static int binFor (double lufs) noexcept;
         static double lowerEdge (int bin) noexcept { return minLufs + bin * binSize; }
         static double centre (int bin) noexcept { return minLufs + (bin + 0.5) * binSize; }
+        /** The loudness of the bin's own mean power (what its blocks really were - the end bins gather what lies
+            beyond the range); far below everything when the bin is empty. */
+        double binLoudness (int bin) const noexcept;
     };
 
     double windowPower (int blocks) const noexcept;   // the mean summed power of the last 'blocks' sub-blocks
@@ -158,6 +163,26 @@ private:
 
     static constexpr int fifoSize = 1024;   // 102 s of sub-blocks
 
+    /** The true peak and the generation it belongs to in one word: a reset writes the new generation with a zero
+        peak, and the audio thread publishes a peak only into its own generation - a peak from before the reset can
+        neither land after it nor erase one after it. */
+    static juce::uint64 packPeak (unsigned gen, float peak) noexcept
+    {
+        juce::uint32 bits;
+        std::memcpy (&bits, &peak, sizeof (bits));
+        return ((juce::uint64) gen << 32) | bits;
+    }
+
+    static float unpackPeak (juce::uint64 word) noexcept
+    {
+        const auto bits = (juce::uint32) (word & 0xffffffffu);
+        float peak;
+        std::memcpy (&peak, &bits, sizeof (peak));
+        return peak;
+    }
+
+    static unsigned generationOf (juce::uint64 word) noexcept { return (unsigned) (word >> 32); }
+
     juce::AbstractFifo fifo { fifoSize };
     std::vector<SubBlock> fifoData;
     KWeightingFilter kLeft, kRight;
@@ -169,7 +194,7 @@ private:
     unsigned audioGeneration = 0;
 
     std::atomic<unsigned> generation { 0 };
-    std::atomic<float> truePeak { 0.0f };
+    std::atomic<juce::uint64> truePeakWord { 0 };   // packPeak (generation, peak)
     std::atomic<int> dropped { 0 };
     LoudnessStats stats;
 };
