@@ -77,6 +77,62 @@ public:
             expect (dir.deleteRecursively());
         }
 
+        beginTest ("plugin groups: members switch off together, a removed plugin drops out, five groups at most, the file keeps them");
+        {
+            MixEngine engine;
+            engine.prepare (48000.0, 256);
+            MixDocument doc (engine);
+            doc.newSession();
+            const auto channelId = doc.getSession().channels[0].id;
+            auto* chain = engine.getChannelChain (channelId);
+            expect (chain != nullptr);
+            chain->addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            chain->addPlugin (std::make_unique<TestGainPlugin> (0.25f));
+            expectEquals (chain->getNumSlots(), 2);
+            const auto first = chain->getSlot (0).state.slotId, second = chain->getSlot (1).state.slotId;
+            expect (! first.isNull() && first != second);
+
+            expectEquals (doc.addPluginGroup (channelId), 0);
+            doc.setPluginGroupMember (channelId, 0, first, true);
+            doc.setPluginGroupOff (channelId, 0, true);
+            expect (chain->getSlot (0).bypassed.load());
+            expect (! chain->getSlot (1).bypassed.load());
+            expect (doc.getSession().channels[0].pluginGroups[0].off);
+            doc.setPluginGroupMember (channelId, 0, second, true);    // joining an OFF group: off at once
+            expect (chain->getSlot (1).bypassed.load());
+            doc.setPluginGroupMember (channelId, 0, second, false);   // leaving it: back on
+            expect (! chain->getSlot (1).bypassed.load());
+            doc.setPluginGroupOff (channelId, 0, false);
+            expect (! chain->getSlot (0).bypassed.load());
+
+            doc.setPluginGroupOff (channelId, 0, true);
+            doc.removePluginGroup (channelId, 0);   // an OFF group dropped: its plugin comes back on
+            expect (! chain->getSlot (0).bypassed.load());
+            expectEquals ((int) doc.getSession().channels[0].pluginGroups.size(), 0);
+
+            expectEquals (doc.addPluginGroup (channelId), 0);
+            doc.setPluginGroupMember (channelId, 0, first, true);
+            chain->removePlugin (0);   // the member is gone: the group switches what is left (nothing) without complaint
+            doc.setPluginGroupOff (channelId, 0, true);
+            expect (! chain->getSlot (0).bypassed.load());
+
+            for (int i = 1; i < MixSession::maxPluginGroups; ++i)
+                expectEquals (doc.addPluginGroup (channelId), i);
+
+            expectEquals (doc.addPluginGroup (channelId), -1);
+            expect (doc.isDirty());
+
+            // the session written and read back keeps the groups and the slots' ids (the chain captured live)
+            MixSession copy = doc.getSession();
+            expect (engine.captureLivePluginStates (copy));
+            MixSession back;
+            expect (MixSession::fromJson (copy.toJson(), back, nullptr).wasOk());
+            expectEquals ((int) back.channels[0].pluginGroups.size(), MixSession::maxPluginGroups);
+            expect (back.channels[0].chain[0].slotId == chain->getSlot (0).state.slotId);
+            expect (back.channels[0].pluginGroups[0].off);
+            expectEquals ((int) back.channels[0].pluginGroups[0].slots.size(), 0);   // the removed member is not in the file
+        }
+
         beginTest ("a plugin's own state change is picked up on demand and settled by a save");
         {
             MixEngine engine;

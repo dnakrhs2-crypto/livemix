@@ -5,6 +5,7 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
 #include <memory>
 #include <vector>
 
@@ -42,6 +43,7 @@ public:
     juce::Component& getAddPluginButton() noexcept { return addPluginButton; }
     std::function<void (const juce::Uuid&)> onRemove;         // the ··· menu
     std::function<void (const juce::Uuid&, int slotIndex)> onOpenPluginEditor;   // a chain chip
+    std::function<void (const juce::Uuid&)> onOpenPluginGroups;   // "플러그인 그룹": the groups window for this channel
 
     void resized() override;
     void paint (juce::Graphics& g) override;
@@ -72,7 +74,10 @@ private:
     juce::ToggleButton stereoToggle;
     std::vector<std::unique_ptr<ChainChip>> chips;
     juce::Label chainArrows;
-    juce::TextButton openChainButton, addPluginButton;
+    juce::TextButton openChainButton, addPluginButton, pluginGroupsButton;
+    juce::Label groupsCaption;
+    std::array<std::unique_ptr<juce::TextButton>, (size_t) MixSession::maxPluginGroups> groupButtons;   // 1..5 under the chain: enabled once the group exists, lit (red) while it is off
+    static constexpr int chainFooter = 6 + 26 + 6 + 30;   // under the chips: the groups row, then the buttons row
     std::vector<std::unique_ptr<SendRow>> sends;
     Chip masterChip, directChip, muteGroupChip { ko ("뮤트그룹") };
     juce::ComboBox directCombo;

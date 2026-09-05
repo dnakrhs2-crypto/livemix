@@ -1,5 +1,7 @@
 #include "MixDocument.h"
 
+#include <algorithm>
+
 namespace gocue::livemix
 {
 
@@ -284,6 +286,98 @@ void MixDocument::setMasterOutput (int first)
     session.master.outputFirst = juce::jlimit (0, MixSession::maxDeviceChannels - 2, first);
     engine.setMasterOutput (session.master.outputFirst);
     valueChanged();
+}
+
+int MixDocument::addPluginGroup (const juce::Uuid& channelId)
+{
+    auto* c = session.findChannel (channelId);
+
+    if (c == nullptr || (int) c->pluginGroups.size() >= MixSession::maxPluginGroups)
+        return -1;
+
+    c->pluginGroups.push_back ({});
+    valueChanged();
+    return (int) c->pluginGroups.size() - 1;
+}
+
+void MixDocument::removePluginGroup (const juce::Uuid& channelId, int group)
+{
+    auto* c = session.findChannel (channelId);
+
+    if (c == nullptr || group < 0 || group >= (int) c->pluginGroups.size())
+        return;
+
+    if (c->pluginGroups[(size_t) group].off)
+        for (const auto& slotId : c->pluginGroups[(size_t) group].slots)
+            bypassSlot (channelId, slotId, false);   // a group that was off does not leave its plugins off behind it
+
+    c->pluginGroups.erase (c->pluginGroups.begin() + group);
+    valueChanged();
+}
+
+void MixDocument::setPluginGroupMember (const juce::Uuid& channelId, int group, const juce::Uuid& slotId, bool member)
+{
+    auto* c = session.findChannel (channelId);
+
+    if (c == nullptr || group < 0 || group >= (int) c->pluginGroups.size() || slotId.isNull())
+        return;
+
+    auto& g = c->pluginGroups[(size_t) group];
+    const auto it = std::find (g.slots.begin(), g.slots.end(), slotId);
+
+    if (member && it == g.slots.end())
+    {
+        g.slots.push_back (slotId);
+
+        if (g.off)
+            bypassSlot (channelId, slotId, true);
+    }
+    else if (! member && it != g.slots.end())
+    {
+        g.slots.erase (it);
+
+        if (g.off)
+            bypassSlot (channelId, slotId, false);
+    }
+    else
+    {
+        return;
+    }
+
+    valueChanged();
+}
+
+void MixDocument::setPluginGroupOff (const juce::Uuid& channelId, int group, bool off)
+{
+    auto* c = session.findChannel (channelId);
+
+    if (c == nullptr || group < 0 || group >= (int) c->pluginGroups.size())
+        return;
+
+    auto& g = c->pluginGroups[(size_t) group];
+    g.off = off;
+
+    for (const auto& slotId : g.slots)
+        bypassSlot (channelId, slotId, off);
+
+    valueChanged();
+}
+
+void MixDocument::bypassSlot (const juce::Uuid& channelId, const juce::Uuid& slotId, bool bypass)
+{
+    auto* chain = engine.getChannelChain (channelId);
+
+    if (chain == nullptr)
+        return;
+
+    for (int i = 0; i < chain->getNumSlots(); ++i)
+        if (chain->getSlot (i).state.slotId == slotId)
+        {
+            if (chain->getSlot (i).bypassed.load() != bypass)
+                chain->setBypassed (i, bypass);
+
+            return;
+        }
 }
 
 void MixDocument::setSessionName (const juce::String& name)

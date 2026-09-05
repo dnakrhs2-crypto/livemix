@@ -56,7 +56,7 @@ private:
 
     juce::Label title, chainCaption, returnCaption, returnValue, outputCaption, meterCaption, sendersCaption, note;
     juce::TextButton closeButton { juce::String::fromUTF8 ("\xE2\x9C\x95") };
-    std::vector<std::unique_ptr<juce::TextButton>> tabs;
+    std::vector<std::unique_ptr<DoubleClickButton>> tabs;   // a click selects, a double-click renames
     juce::TextButton addFxButton, removeFxButton;
     NameLabel name;
     std::vector<std::unique_ptr<juce::TextButton>> chips;

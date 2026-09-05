@@ -1,6 +1,7 @@
 #include "audio/PluginChain.h"
 
 #include <cmath>
+#include <set>
 
 namespace gocue
 {
@@ -125,6 +126,13 @@ const PluginChain::Slot& PluginChain::getSlot (int index) const
 
 void PluginChain::insertSlot (std::unique_ptr<Slot> slot, int insertAt)
 {
+    for (auto& other : slots)   // message thread only: the ids are not the audio thread's business
+        if (other->state.slotId == slot->state.slotId)
+        {
+            slot->state.slotId = juce::Uuid();   // the same preset twice: each slot its own
+            break;
+        }
+
     {
         const juce::ScopedLock sl (lock);
 
@@ -405,6 +413,7 @@ juce::StringArray PluginChain::restore (const std::vector<PluginSlotState>& stat
     // the lock so a running cue is never heard dry or half-chained meanwhile.
     juce::StringArray errors;
     std::vector<std::unique_ptr<Slot>> fresh;
+    std::set<juce::String> ids;
 
     for (const auto& state : states)
     {
@@ -417,6 +426,12 @@ juce::StringArray PluginChain::restore (const std::vector<PluginSlotState>& stat
         auto slot = std::make_unique<Slot>();
         slot->state = state;
         slot->bypassed.store (state.bypassed);
+
+        if (slot->state.slotId.isNull() || ! ids.insert (slot->state.slotId.toString()).second)
+        {
+            slot->state.slotId = juce::Uuid();   // a file with two slots of one id (or none): each its own
+            ids.insert (slot->state.slotId.toString());
+        }
 
         if (instance != nullptr)
         {

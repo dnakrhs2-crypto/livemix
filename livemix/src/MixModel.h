@@ -25,6 +25,15 @@ struct MixSend
     bool pre = false;
 };
 
+/** A mic channel's plugin group: some of its chain's plugins, switched off (bypassed) together with one press of
+    the group's number on the card. The members are the slots' own ids (PluginSlotState::slotId), so a chain edited
+    later - a plugin removed or moved - keeps the group right. */
+struct MixPluginGroup
+{
+    std::vector<juce::Uuid> slots;
+    bool off = false;   // switched off right now: its members are bypassed
+};
+
 /** A mic channel: one ASIO input (or a stereo pair) through a VST3 chain, a mic ON/OFF switch, sends and outputs.
     No gain, no fader: the channel is unity. */
 struct MixChannel
@@ -38,6 +47,7 @@ struct MixChannel
     std::vector<PluginSlotState> chain;
     std::vector<MixSend> sends;   // one per FX channel after sanitise()
     MixOutput output;
+    std::vector<MixPluginGroup> pluginGroups;   // up to MixSession::maxPluginGroups, numbered 1.. on the card
 };
 
 /** An FX channel (reverb, delay ...): the sum of the sends through a VST3 chain, then a return amount, to the outputs. */
@@ -73,6 +83,7 @@ struct MixSession
     static constexpr int maxFx = 4;
     static constexpr int maxDeviceChannels = 64;
     static constexpr int maxChainSlots = 16;                        // plugins per chain
+    static constexpr int maxPluginGroups = 5;                       // plugin groups per mic channel
     static constexpr juce::int64 maxFileBytes = 32 * 1024 * 1024;   // a session file beyond this is not a session
     static constexpr const char* fileExtension = ".livemix";
 

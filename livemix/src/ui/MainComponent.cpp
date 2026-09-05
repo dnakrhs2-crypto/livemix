@@ -130,6 +130,7 @@ MainComponent::~MainComponent()
     BackupDialog::closeIfOpen();   // its content refers to the document and the backup thread
     pluginManagerWindow.reset();
     loudnessWindow.reset();
+    pluginGroupsWindow.reset();
     juce::ModalComponentManager::getInstance()->cancelAllModalComponents();   // open alerts refer to this window and its document
     windows.closeAll();
     engine.forEachChain ([] (PluginChain& chain) { chain.setListener (nullptr); });   // the window manager dies here: no chain may call it afterwards
@@ -186,6 +187,7 @@ void MainComponent::rebuildCards()
                         if (const auto* ch = document.getSession().findChannel (id))
                             windows.open (*chain->getSlot (slot).plugin, ch->name + " - " + chain->getSlot (slot).plugin->getName());
             };
+            card->onOpenPluginGroups = [this] (const juce::Uuid& id) { showPluginGroups (id); };
             card->setGroupMuted (muteGroups.isMuted (MuteGroups::Group::mic));
             cardsHolder.addAndMakeVisible (*card);
         }
@@ -198,6 +200,9 @@ void MainComponent::rebuildCards()
     cards = std::move (next);
     masterCard.setDeviceChannels (outputNames);
     fxDrawer.setDeviceChannels (outputNames);
+
+    if (pluginGroupsWindow != nullptr)
+        pluginGroupsWindow->refresh();   // its channel may be gone, its chain rebuilt
     topBar.setFxCount ((int) session.fx.size());
     topBar.refresh();
     fxDrawer.refresh();
@@ -231,6 +236,9 @@ void MainComponent::refreshValues()
         resized();   // more or fewer chip rows: the master's height (folded or not), and the room above it
 
     fxDrawer.refresh();
+
+    if (pluginGroupsWindow != nullptr)
+        pluginGroupsWindow->refresh();
     layoutFxDrawer();
     topBar.refresh();
     topBar.setFxCount ((int) document.getSession().fx.size());
@@ -501,6 +509,17 @@ void MainComponent::showPluginManager()
     }
 
     pluginManagerWindow->open();
+}
+
+void MainComponent::showPluginGroups (const juce::Uuid& channelId)
+{
+    if (pluginGroupsWindow == nullptr)
+    {
+        pluginGroupsWindow = std::make_unique<PluginGroupsWindow> (document);
+        pluginGroupsWindow->centreAroundComponent (this, pluginGroupsWindow->getWidth(), pluginGroupsWindow->getHeight());   // on this display, inside it
+    }
+
+    pluginGroupsWindow->open (channelId);
 }
 
 void MainComponent::showLoudnessWindow()

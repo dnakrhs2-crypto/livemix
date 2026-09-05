@@ -9,6 +9,7 @@
 #include "MasterCard.h"
 #include "MixDocument.h"
 #include "MuteGroups.h"
+#include "PluginGroupsWindow.h"
 #include "PluginManagerWindow.h"
 #include "PluginPreset.h"
 #include "TopBar.h"
@@ -100,6 +101,7 @@ private:
     void muteGroupsChanged();    // badges, cards, drawer
     void showPluginManager();
     void showLoudnessWindow();   // the LUFS meter (the master card's button, the 설정 menu)
+    void showPluginGroups (const juce::Uuid& channelId);   // a mic channel's plugin groups (the card's button)
     void chooseDevice (const juce::String& name);
     void deviceChosen();   // the operator picked a device / buffer: the session remembers it
     void loadSession (const juce::File& file);
@@ -120,6 +122,7 @@ private:
     WebDavBackup backup;
     std::unique_ptr<PluginManagerWindow> pluginManagerWindow;   // made on first use, hidden on close
     std::unique_ptr<LoudnessWindow> loudnessWindow;             // the same
+    std::unique_ptr<PluginGroupsWindow> pluginGroupsWindow;     // the same, showing one channel at a time
     bool safeMode = false;
     juce::StringArray faultedPlugins, stalledPlugins;   // told once each, kept in the notice until the session changes
 

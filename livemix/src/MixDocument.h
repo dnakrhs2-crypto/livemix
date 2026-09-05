@@ -58,6 +58,14 @@ public:
     void setFxMuteGroup (const juce::Uuid& id, bool inGroup);
     void setFxOutput (const juce::Uuid& id, const MixOutput& output);
     void setMasterOutput (int first);
+
+    /** A mic channel's plugin groups (MixPluginGroup): made, dropped, their members picked among the chain's slots
+        (by slot id), and switched off / on - off bypasses every member in the live chain at once. */
+    int addPluginGroup (const juce::Uuid& channelId);   // the new group's index, or -1 with maxPluginGroups there already
+    void removePluginGroup (const juce::Uuid& channelId, int group);   // an OFF group's members come back on
+    void setPluginGroupMember (const juce::Uuid& channelId, int group, const juce::Uuid& slotId, bool member);   // joining an OFF group switches the plugin off at once, leaving it switches it on
+    void setPluginGroupOff (const juce::Uuid& channelId, int group, bool off);
+
     void setSessionName (const juce::String& name);
     void setDeviceInfo (const juce::String& name, int bufferSize, double sampleRate);
 
@@ -72,6 +80,7 @@ public:
     std::function<void()> onValueChanged;
 
 private:
+    void bypassSlot (const juce::Uuid& channelId, const juce::Uuid& slotId, bool bypass);   // the live chain's slot with that id (none: nothing)
     void structureChanged();   // an edit: dirty, then announced
     void valueChanged();
     void notifyStructure();    // announced only (a load / a new session are clean)

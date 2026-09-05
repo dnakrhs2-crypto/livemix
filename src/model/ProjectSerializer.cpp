@@ -38,6 +38,7 @@ namespace
         obj->setProperty ("state", p.stateBase64);
         obj->setProperty ("description", p.descriptionXml);
         obj->setProperty ("bypassed", p.bypassed);
+        obj->setProperty ("slotId", p.slotId.toString());
         return juce::var (obj);
     }
 
@@ -51,6 +52,10 @@ namespace
         p.stateBase64      = v.getProperty ("state", "").toString();
         p.descriptionXml   = v.getProperty ("description", "").toString();
         p.bypassed         = (bool) v.getProperty ("bypassed", false);
+
+        if (const juce::Uuid saved (v.getProperty ("slotId", "").toString()); ! saved.isNull())
+            p.slotId = saved;   // an older file has none: the fresh one stands
+
         return p;
     }
 

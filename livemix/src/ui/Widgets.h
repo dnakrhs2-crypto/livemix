@@ -247,7 +247,7 @@ class NameLabel : public juce::Label
 public:
     NameLabel()
     {
-        setFont (titleFont());
+        setFont (font);
         setEditable (false, true, false);
         setMinimumHorizontalScale (1.0f);
         setColour (juce::Label::textColourId, Palette::text);
@@ -255,6 +255,15 @@ public:
     }
 
     std::function<void (const juce::String&)> onRenamed;
+    /** The editor opened / closed (committed or not): a row that makes room for it lays out again. */
+    std::function<void()> onEditorShown, onEditorHidden;
+
+    /** A smaller name (a send row): the label and its editor both. */
+    void setNameFont (const juce::Font& f)
+    {
+        font = f;
+        setFont (f);
+    }
 
     void textWasEdited() override
     {
@@ -265,9 +274,61 @@ public:
     juce::TextEditor* createEditorComponent() override
     {
         auto* textEditor = juce::Label::createEditorComponent();
-        textEditor->setFont (titleFont());
+        textEditor->setFont (font);
         textEditor->setSelectAllWhenFocused (true);
         return textEditor;
+    }
+
+    void editorShown (juce::TextEditor* textEditor) override
+    {
+        juce::Label::editorShown (textEditor);
+
+        if (onEditorShown)
+            onEditorShown();
+    }
+
+    void editorAboutToBeHidden (juce::TextEditor* textEditor) override
+    {
+        juce::Label::editorAboutToBeHidden (textEditor);
+
+        if (onEditorHidden)
+            onEditorHidden();
+    }
+
+private:
+    juce::Font font { titleFont() };
+};
+
+/** A button that also tells of a double-click (an FX tab: a click selects, a double-click renames). It is reported
+    from mouseUp, before the click itself: the click may rebuild the button (a refresh), after which JUCE would not
+    deliver mouseDoubleClick to it. The callback should defer its work (callAsync) for the same reason. */
+class DoubleClickButton : public juce::TextButton
+{
+public:
+    using juce::TextButton::TextButton;
+    std::function<void()> onDoubleClick;
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.getNumberOfClicks() >= 2 && ! e.mods.isPopupMenu() && onDoubleClick && contains (e.getPosition()))
+            onDoubleClick();
+
+        juce::TextButton::mouseUp (e);
+    }
+};
+
+/** A label that tells of a double-click (the FX badge on a send row: it opens the name's editor). */
+class DoubleClickLabel : public juce::Label
+{
+public:
+    std::function<void()> onDoubleClick;
+
+    void mouseUp (const juce::MouseEvent& e) override
+    {
+        if (e.getNumberOfClicks() >= 2 && ! e.mods.isPopupMenu() && onDoubleClick && contains (e.getPosition()))
+            onDoubleClick();
+
+        juce::Label::mouseUp (e);
     }
 };
 

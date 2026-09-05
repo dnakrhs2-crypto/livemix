@@ -12,9 +12,14 @@ struct ChannelCard::SendRow : public juce::Component
         badge.setColour (juce::Label::textColourId, juce::Colours::white);
         badge.setColour (juce::Label::backgroundColourId, Palette::accent);
         badge.setJustificationType (juce::Justification::centred);
+        badge.setTooltip (ko ("더블클릭: 이 FX 채널의 이름 바꾸기"));
+        badge.onDoubleClick = [this] { fxName.showEditor(); };
         addAndMakeVisible (badge);
-        fxName.setFont (juce::Font (juce::FontOptions (pt (13.0f), juce::Font::bold)));
+        fxName.setNameFont (juce::Font (juce::FontOptions (pt (13.0f), juce::Font::bold)));
         fxName.setMinimumHorizontalScale (1.0f);
+        fxName.onRenamed = [this] (const juce::String& text) { owner.document.renameFx (fxId, text); };   // every card, tab and the session follow
+        fxName.onEditorShown = [this] { editingName = true; resized(); };    // the name gets room to type in
+        fxName.onEditorHidden = [this] { editingName = false; resized(); };
         addAndMakeVisible (fxName);
 
         fader.setSliderStyle (juce::Slider::LinearHorizontal);
@@ -52,8 +57,11 @@ struct ChannelCard::SendRow : public juce::Component
     void refresh (const MixFx& fx, int index, const MixSend& send)
     {
         badge.setText ("FX" + juce::String (index + 1), juce::dontSendNotification);
-        fxName.setText (fx.name.trim() == "FX " + juce::String (index + 1) ? juce::String() : fx.name, juce::dontSendNotification);   // the default name repeats the badge
-        fxName.setTooltip (fx.name);
+
+        if (! fxName.isBeingEdited())
+            fxName.setText (fx.name.trim() == "FX " + juce::String (index + 1) ? juce::String() : fx.name, juce::dontSendNotification);   // the default name repeats the badge
+
+        fxName.setTooltip (fx.name + "   " + ko ("(더블클릭: 이름 바꾸기)"));
         fader.setValue (send.amount * 100.0, juce::dontSendNotification);
         value.setText (juce::String ((int) std::lround (send.amount * 100.0)) + "%", juce::dontSendNotification);
         preToggle.setToggleState (send.pre, juce::dontSendNotification);
@@ -65,7 +73,7 @@ struct ChannelCard::SendRow : public juce::Component
         auto r = getLocalBounds();
         badge.setBounds (r.removeFromLeft (34).reduced (0, 6));
         r.removeFromLeft (6);
-        fxName.setBounds (r.removeFromLeft (juce::jmin (70, r.getWidth() / 4)));
+        fxName.setBounds (r.removeFromLeft (editingName ? juce::jmax (120, r.getWidth() / 2) : juce::jmin (70, r.getWidth() / 4)));   // wider while its editor is open
         r.removeFromLeft (6);
         preToggle.setBounds (r.removeFromRight (58).reduced (0, 5));
         r.removeFromRight (8);
@@ -76,9 +84,12 @@ struct ChannelCard::SendRow : public juce::Component
 
     ChannelCard& owner;
     juce::Uuid fxId;
-    juce::Label badge, fxName, value;
+    DoubleClickLabel badge;
+    NameLabel fxName;
+    juce::Label value;
     juce::Slider fader;
     Chip preToggle { ko ("포스트") };
+    bool editingName = false;
 };
 
 /** A numbered chip in the chain summary: click opens the plugin's window. */
@@ -159,6 +170,30 @@ ChannelCard::ChannelCard (MixDocument& doc, const juce::Uuid& id) : document (do
     addPluginButton.setWantsKeyboardFocus (false);
     addPluginButton.onClick = [this] { if (onAddPlugin) onAddPlugin (channelId); };
     addAndMakeVisible (addPluginButton);
+    pluginGroupsButton.setButtonText (ko ("플러그인 그룹"));
+    pluginGroupsButton.setTooltip (ko ("이 채널의 플러그인 그룹: 체인의 플러그인 중 골라 그룹으로 묶어 두면, 아래 번호 한 번으로 그것들만 끄고 켭니다 (최대 5개)"));
+    pluginGroupsButton.setWantsKeyboardFocus (false);
+    pluginGroupsButton.onClick = [this] { if (onOpenPluginGroups) onOpenPluginGroups (channelId); };
+    addAndMakeVisible (pluginGroupsButton);
+
+    styleCaption (groupsCaption, ko ("그룹 OFF"));
+    addAndMakeVisible (groupsCaption);
+
+    for (int i = 0; i < MixSession::maxPluginGroups; ++i)
+    {
+        auto b = std::make_unique<juce::TextButton> (juce::String (i + 1));
+        b->setWantsKeyboardFocus (false);
+        b->setColour (juce::TextButton::buttonOnColourId, Palette::danger);
+        b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        b->onClick = [this, i]
+        {
+            if (const auto* c = channel())
+                if (i < (int) c->pluginGroups.size())
+                    document.setPluginGroupOff (channelId, i, ! c->pluginGroups[(size_t) i].off);
+        };
+        addAndMakeVisible (*b);
+        groupButtons[(size_t) i] = std::move (b);
+    }
 
     styleCaption (fxCaption, ko ("이펙터") + "   " + ko ("FX 채널로 보내는 양"));
     addAndMakeVisible (fxCaption);
@@ -236,6 +271,18 @@ void ChannelCard::refresh()
     muteGroupChip.setToggleState (c->muteGroup, juce::dontSendNotification);
     micButton.setMuted (groupMuted && c->muteGroup);
     meter_.setStereo (c->stereo);
+
+    for (int i = 0; i < MixSession::maxPluginGroups; ++i)
+    {
+        auto& b = *groupButtons[(size_t) i];
+        const bool exists = i < (int) c->pluginGroups.size();
+        const bool off = exists && c->pluginGroups[(size_t) i].off;
+        b.setEnabled (exists);
+        b.setToggleState (off, juce::dontSendNotification);
+        b.setTooltip (exists ? ko ("플러그인 그룹 ") + juce::String (i + 1) + " (" + juce::String ((int) c->pluginGroups[(size_t) i].slots.size()) + ko ("개)")
+                                   + (off ? ko (": 꺼져 있음 - 누르면 켭니다") : ko (": 누르면 이 그룹의 플러그인을 끕니다"))
+                             : ko ("플러그인 그룹 ") + juce::String (i + 1) + ko ("은 아직 없습니다 ('플러그인 그룹'에서 만듭니다)"));
+    }
 
     rebuildChain();
     rebuildSends();
@@ -387,7 +434,7 @@ int ChannelCard::getPreferredHeight (int width) const
     const int fxH = 22 + sendRows * 34 + 4;
     const int headH = 34 + 8 + 40 + 8 + 30 + 8;
     const int chainRows = chainRowsForWidth (width);
-    const int chainH = 22 + chainRows * ChipFlow::rowStep + 36;
+    const int chainH = 22 + chainRows * ChipFlow::rowStep + chainFooter;
     const int outH = 26 + 34 + 12 + 18 + 40;
 
     switch (layout)
@@ -429,6 +476,20 @@ void ChannelCard::resized()
         openChainButton.setBounds (buttons.removeFromLeft (92));
         buttons.removeFromLeft (8);
         addPluginButton.setBounds (buttons.removeFromLeft (76));
+        buttons.removeFromLeft (8);
+        pluginGroupsButton.setBounds (buttons.removeFromLeft (juce::jlimit (60, 112, buttons.getWidth())));
+        r.removeFromBottom (6);
+
+        // the groups' numbers under the chips: 1..5, each enabled once its group exists
+        auto groupsRow = r.removeFromBottom (26);
+        groupsCaption.setBounds (groupsRow.removeFromLeft (66));
+
+        for (auto& b : groupButtons)
+        {
+            b->setBounds (groupsRow.removeFromLeft (30).reduced (0, 1));
+            groupsRow.removeFromLeft (4);
+        }
+
         r.removeFromBottom (6);
 
         // chips flow left to right, wrapping (the same flow counts the rows for the height)
@@ -477,7 +538,7 @@ void ChannelCard::resized()
     }
     else if (layout == CardLayout::medium)
     {
-        const int topH = juce::jmax (34 + 8 + 40 + 8 + 30, 22 + chainRowsForWidth (getWidth()) * ChipFlow::rowStep + 36);
+        const int topH = juce::jmax (34 + 8 + 40 + 8 + 30, 22 + chainRowsForWidth (getWidth()) * ChipFlow::rowStep + chainFooter);
         auto top = area.removeFromTop (topH);
         area.removeFromTop (16);
         auto head = top.removeFromLeft (juce::jmax (230, top.getWidth() * 2 / 5));
@@ -493,7 +554,7 @@ void ChannelCard::resized()
     {
         layoutHead (area.removeFromTop (34 + 8 + 40 + 8 + 30));
         area.removeFromTop (14);
-        const int chainH = 22 + chainRowsForWidth (getWidth()) * ChipFlow::rowStep + 36;
+        const int chainH = 22 + chainRowsForWidth (getWidth()) * ChipFlow::rowStep + chainFooter;
         layoutChain (area.removeFromTop (chainH));
         area.removeFromTop (14);
         layoutFx (area.removeFromTop (22 + juce::jmax (1, (int) sends.size()) * 34 + 4));

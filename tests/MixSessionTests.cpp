@@ -110,6 +110,7 @@ public:
             slot.stateBase64 = "AAEC";
             slot.bypassed = true;
             c.chain.push_back (slot);
+            c.pluginGroups.push_back ({ { slot.slotId }, true });
             s.fx[0].returnAmount = 0.5;
             s.fx[0].mono = true;
             s.fx[0].output.direct = true;
@@ -148,11 +149,46 @@ public:
             expectEquals (q.channels[0].chain[0].uniqueId, 1234);
             expectEquals (q.channels[0].chain[0].stateBase64, juce::String ("AAEC"));
             expect (q.channels[0].chain[0].bypassed);
+            expect (q.channels[0].chain[0].slotId == slot.slotId);   // the slot's own id survives the file
+            expectEquals ((int) q.channels[0].pluginGroups.size(), 1);
+            expect (q.channels[0].pluginGroups[0].off);
+            expectEquals ((int) q.channels[0].pluginGroups[0].slots.size(), 1);
+            expect (q.channels[0].pluginGroups[0].slots[0] == slot.slotId);
             expectWithinAbsoluteError (q.fx[0].returnAmount, 0.5, 1e-12);
             expectEquals (q.fx[0].output.directFirst, 6);
             expectEquals ((int) q.fx[0].chain.size(), 1);
             expectEquals ((int) q.master.chain.size(), 1);
             expectEquals (q.master.outputFirst, 2);
+        }
+
+        beginTest ("plugin groups: at most five a channel, a member once and only of a slot the chain has; a fresh slot has an id of its own");
+        {
+            PluginSlotState a, b;
+            a.name = "A";
+            b.name = "B";
+            expect (! a.slotId.isNull() && a.slotId != b.slotId);
+
+            MixSession s;
+            s.addChannel ("A");
+            auto& c = s.channels[0];
+            c.chain = { a, b };
+
+            for (int i = 0; i < 7; ++i)
+                c.pluginGroups.push_back ({ { a.slotId, a.slotId, juce::Uuid(), b.slotId }, i == 0 });
+
+            MixSession q;
+            expect (MixSession::fromJson (s.toJson(), q, nullptr).wasOk());
+            expectEquals ((int) q.channels[0].pluginGroups.size(), MixSession::maxPluginGroups);
+            expect (q.channels[0].pluginGroups[0].off);
+            expectEquals ((int) q.channels[0].pluginGroups[0].slots.size(), 2);   // a once, the stranger dropped, b
+            expect (q.channels[0].pluginGroups[0].slots[0] == a.slotId && q.channels[0].pluginGroups[0].slots[1] == b.slotId);
+
+            // an older file without slot ids: every slot gets one, and they differ
+            const auto older = s.toJson().replace ("\"slotId\"", "\"wasSlotId\"");
+            MixSession o;
+            expect (MixSession::fromJson (older, o, nullptr).wasOk());
+            expect (! o.channels[0].chain[0].slotId.isNull() && o.channels[0].chain[0].slotId != o.channels[0].chain[1].slotId);
+            expectEquals ((int) o.channels[0].pluginGroups[0].slots.size(), 0);   // its members named ids no slot has now
         }
 
         beginTest ("broken, foreign and future files are refused; save is verified and atomic");

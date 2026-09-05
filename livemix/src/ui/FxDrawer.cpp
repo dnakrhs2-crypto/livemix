@@ -191,12 +191,28 @@ void FxDrawer::rebuildTabs()
         const auto& f = session.fx[i];
         const auto badge = "FX" + juce::String ((int) i + 1);
         const bool defaultName = f.name.trim() == "FX " + juce::String ((int) i + 1);   // the default name says no more than the badge
-        auto tab = std::make_unique<juce::TextButton> (defaultName ? badge : badge + "  " + f.name);
+        auto tab = std::make_unique<DoubleClickButton> (defaultName ? badge : badge + "  " + f.name);
         tab->setWantsKeyboardFocus (false);
+        tab->setTooltip (ko ("더블클릭: 이름 바꾸기"));
         tab->setToggleState (f.id == selected, juce::dontSendNotification);
         tab->setColour (juce::TextButton::buttonOnColourId, Palette::accent);
         const auto id = f.id;
         tab->onClick = [this, id] { selectFx (id); };
+        tab->onDoubleClick = [this, id]
+        {
+            // after the click's own refresh (it rebuilds the tabs): this FX selected, its name field open with the name selected
+            juce::Component::SafePointer<FxDrawer> safe (this);
+            juce::MessageManager::callAsync ([safe, id]
+            {
+                if (safe == nullptr)
+                    return;
+
+                if (safe->selected != id)
+                    safe->selectFx (id);
+
+                safe->name.showEditor();
+            });
+        };
         addAndMakeVisible (*tab);
         tabs.push_back (std::move (tab));
     }

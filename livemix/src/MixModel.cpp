@@ -193,6 +193,9 @@ void MixSession::sanitise()
         if (c.name.isEmpty())
             c.name = juce::String::fromUTF8 ("마이크 ") + juce::String ((int) i + 1);
 
+        if ((int) c.pluginGroups.size() > maxPluginGroups)
+            c.pluginGroups.resize ((size_t) maxPluginGroups);
+
         c.inputFirst = juce::jlimit (0, maxDeviceChannels - 1, c.inputFirst);
 
         if (c.stereo && c.inputFirst > maxDeviceChannels - 2)
@@ -267,6 +270,23 @@ juce::String MixSession::toJson() const
 
         obj->setProperty ("sends", sends);
         obj->setProperty ("output", outputToVar (c.output));
+
+        juce::Array<juce::var> groups;
+
+        for (const auto& g : c.pluginGroups)
+        {
+            auto* group = new juce::DynamicObject();
+            juce::Array<juce::var> members;
+
+            for (const auto& slotId : g.slots)
+                members.add (idText (slotId));
+
+            group->setProperty ("slots", members);
+            group->setProperty ("off", g.off);
+            groups.add (group);
+        }
+
+        obj->setProperty ("pluginGroups", groups);
         channelArray.add (obj);
     }
 
@@ -393,6 +413,21 @@ juce::Result MixSession::fromJson (const juce::String& json, MixSession& out, ju
                         c.sends.push_back ({ juce::Uuid (sv.getProperty ("fx", "").toString()), (double) sv.getProperty ("amount", 0.0), (bool) sv.getProperty ("pre", false) });
 
             c.output = outputFromVar (item.getProperty ("output", juce::var()), MixOutput());
+
+            if (const auto* groups = item.getProperty ("pluginGroups", juce::var()).getArray())
+                for (const auto& gv : *groups)
+                    if (gv.getDynamicObject() != nullptr)
+                    {
+                        MixPluginGroup g;
+                        g.off = (bool) gv.getProperty ("off", false);
+
+                        if (const auto* members = gv.getProperty ("slots", juce::var()).getArray())
+                            for (const auto& mv : *members)
+                                g.slots.push_back (juce::Uuid (mv.toString()));
+
+                        c.pluginGroups.push_back (std::move (g));
+                    }
+
             s.channels.push_back (std::move (c));
         }
     }
@@ -414,6 +449,23 @@ juce::Result MixSession::fromJson (const juce::String& json, MixSession& out, ju
         chainOverLimit = chainOverLimit || (int) f.chain.size() > maxChainSlots;
 
     s.sanitise();
+
+    for (auto& c : s.channels)
+        for (auto& g : c.pluginGroups)
+        {
+            std::vector<juce::Uuid> kept;
+
+            for (const auto& slotId : g.slots)
+            {
+                const bool inChain = std::any_of (c.chain.begin(), c.chain.end(), [&slotId] (const PluginSlotState& slot) { return slot.slotId == slotId; });
+                const bool again = std::find (kept.begin(), kept.end(), slotId) != kept.end();
+
+                if (! slotId.isNull() && inChain && ! again)
+                    kept.push_back (slotId);
+            }
+
+            g.slots = std::move (kept);
+        }
 
     if (warnings != nullptr && chainOverLimit)
         warnings->add (juce::String::fromUTF8 ("체인에 플러그인이 16개보다 많아 뒤의 것은 뺐습니다"));

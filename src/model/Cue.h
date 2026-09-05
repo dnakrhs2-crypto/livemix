@@ -21,6 +21,8 @@ struct PluginSlotState
     juce::String stateBase64;        // AudioProcessor::getStateInformation(), base64
     juce::String descriptionXml;     // juce::PluginDescription::createXml(), exact reload key
     bool bypassed = false;
+    juce::Uuid slotId;               // this slot's own identity (fresh on construction, kept through save / load): what a
+                                     // LiveMix plugin group refers to, so a chain edited later keeps the group right
 };
 
 /** What a running cue does when it is triggered again (QLab "second trigger"). */
