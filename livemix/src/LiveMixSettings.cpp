@@ -32,6 +32,8 @@ namespace Keys
     constexpr const char* fxMuteHotkey = "fxMuteHotkey";
     constexpr const char* vst2Enabled = "vst2Enabled";
     constexpr const char* disabledPlugins = "disabledPlugins";
+    constexpr const char* lufsTarget = "lufsTarget";
+    constexpr const char* lufsAlwaysOnTop = "lufsAlwaysOnTop";
 }
 
 LiveMixSettings::LiveMixSettings()
@@ -110,6 +112,11 @@ void LiveMixSettings::setFxMuteHotkey (const juce::String& description) { settin
 
 bool LiveMixSettings::getVst2Enabled() const { return settings->getBoolValue (Keys::vst2Enabled, false); }
 void LiveMixSettings::setVst2Enabled (bool on) { settings->setValue (Keys::vst2Enabled, on); }
+
+double LiveMixSettings::getLufsTarget() const { return settings->getDoubleValue (Keys::lufsTarget, -14.0); }
+void LiveMixSettings::setLufsTarget (double lufs) { settings->setValue (Keys::lufsTarget, lufs); }
+bool LiveMixSettings::getLufsAlwaysOnTop() const { return settings->getBoolValue (Keys::lufsAlwaysOnTop, false); }
+void LiveMixSettings::setLufsAlwaysOnTop (bool on) { settings->setValue (Keys::lufsAlwaysOnTop, on); }
 
 juce::StringArray LiveMixSettings::getDisabledPlugins() const
 {

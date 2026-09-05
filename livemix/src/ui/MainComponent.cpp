@@ -34,6 +34,7 @@ MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s)
     addAndMakeVisible (masterCard);
     masterCard.onOpenChain = [this] { openChainFor (&engine.getMasterChain(), ko ("마스터")); };
     masterCard.onAddPlugin = [this] { addPluginTo (&engine.getMasterChain(), ko ("마스터"), &masterCard.getAddPluginButton()); };
+    masterCard.onOpenLoudness = [this] { showLoudnessWindow(); };
     masterCard.onOpenPluginEditor = [this] (int slot)
     {
         auto& chain = engine.getMasterChain();
@@ -128,6 +129,7 @@ MainComponent::~MainComponent()
     SettingsDialog::closeIfOpen();
     BackupDialog::closeIfOpen();   // its content refers to the document and the backup thread
     pluginManagerWindow.reset();
+    loudnessWindow.reset();
     juce::ModalComponentManager::getInstance()->cancelAllModalComponents();   // open alerts refer to this window and its document
     windows.closeAll();
     engine.forEachChain ([] (PluginChain& chain) { chain.setListener (nullptr); });   // the window manager dies here: no chain may call it afterwards
@@ -501,6 +503,17 @@ void MainComponent::showPluginManager()
     pluginManagerWindow->open();
 }
 
+void MainComponent::showLoudnessWindow()
+{
+    if (loudnessWindow == nullptr)
+    {
+        loudnessWindow = std::make_unique<LoudnessWindow> (engine, settings);
+        loudnessWindow->centreAroundComponent (this, loudnessWindow->getWidth(), loudnessWindow->getHeight());   // on this display, inside it
+    }
+
+    loudnessWindow->open();
+}
+
 //==============================================================================
 static constexpr int maxDeviceChannelsShown = MixSession::maxDeviceChannels;
 
@@ -576,6 +589,7 @@ void MainComponent::deviceChosen()
 //==============================================================================
 void MainComponent::timerCallback()
 {
+    engine.getLoudnessMeter().poll();   // the LUFS numbers keep up whether or not their window is open (an hour-long stream reads whole)
     const auto inView = viewport.getViewArea();   // a tall window scrolls: every meter is read and advances, only the cards on screen repaint
 
     for (auto& card : cards)
@@ -1128,6 +1142,7 @@ juce::PopupMenu MainComponent::getMenuForIndex (int topLevelMenuIndex, const juc
         case 2:
             menu.addItem (1, ko ("설정..."));
             menu.addItem (2, ko ("플러그인 관리..."));
+            menu.addItem (3, ko ("LUFS 미터..."));
             break;
 
         case 3:
@@ -1182,6 +1197,8 @@ void MainComponent::menuItemSelected (int id, int topLevelMenuIndex)
                 showSettingsDialog();
             else if (id == 2)
                 showPluginManager();
+            else if (id == 3)
+                showLoudnessWindow();
             break;
 
         case 3:

@@ -1,5 +1,6 @@
 #include "ui/PluginManagerWindow.h"
 
+#include "PluginSearch.h"
 #include "Widgets.h"
 
 #include <juce_audio_processors/juce_audio_processors.h>
@@ -48,7 +49,7 @@ namespace
 
     juce::String formatLabel (const juce::String& formatName)
     {
-        return formatName == "VST" ? "VST2" : formatName;
+        return pluginFormatLabel (formatName);
     }
 
     constexpr int columnFlags = juce::TableHeaderComponent::visible | juce::TableHeaderComponent::resizable;
@@ -102,9 +103,9 @@ public:
         styleCaption (availableCaption, ko ("쓸 수 있는 플러그인 (더블클릭으로 추가)"));
         addAndMakeVisible (availableCaption);
         searchEditor.setFont (bodyFont (13.5f));
-        searchEditor.setTextToShowWhenEmpty (ko ("검색: 이름이나 제조사"), Palette::dimText);
+        searchEditor.setTextToShowWhenEmpty (ko ("검색: 이름, 제조사, 형식"), Palette::dimText);
         searchEditor.onTextChange = [this] { applyFilter(); };
-        searchEditor.onEscapeKey = [this] { if (searchEditor.getText().isNotEmpty()) searchEditor.clear(); else if (cancel) cancel(); };
+        searchEditor.onEscapeKey = [this] { if (searchEditor.getText().isNotEmpty()) searchEditor.setText ({}, true); else if (cancel) cancel(); };   // setText sends the change (clear() does not: the list would stay filtered)
         addAndMakeVisible (searchEditor);
         styleCaption (chosenCaption, ko ("프리셋의 체인 (위에서 아래 순서로 통과)"));
         addAndMakeVisible (chosenCaption);
@@ -220,16 +221,10 @@ private:
         bool chosenSide;
     };
 
-    /** The available list shows the plugins whose name or maker contains the search text (all of them when it is empty). */
+    /** The available list shows the plugins the search matches (pluginMatchesSearch: name, maker, format; all of them when it is empty). */
     void applyFilter()
     {
-        const auto query = searchEditor.getText().trim();
-        available.clear();
-
-        for (const auto& d : allAvailable)
-            if (query.isEmpty() || d.name.containsIgnoreCase (query) || d.manufacturerName.containsIgnoreCase (query))
-                available.add (d);
-
+        available = filterPlugins (allAvailable, searchEditor.getText());
         availableList.deselectAllRows();
         availableList.updateContent();
         availableList.repaint();
@@ -347,6 +342,16 @@ public:
         note.setMinimumHorizontalScale (1.0f);
         addAndMakeVisible (note);
 
+        // the search: the table shows the plugins it matches (every word: name, maker, format); Esc clears it
+        pluginSearch.setFont (bodyFont (13.5f));
+        pluginSearch.setTextToShowWhenEmpty (ko ("검색: 이름, 제조사, 형식 (예: waves comp, vst2)"), Palette::dimText);
+        pluginSearch.onTextChange = [this] { applyPluginSearch(); };
+        pluginSearch.onEscapeKey = [this] { pluginSearch.setText ({}, true); };   // with the change message: the table shows everything again
+        addAndMakeVisible (pluginSearch);
+        styleCaption (pluginCount, "");
+        pluginCount.setJustificationType (juce::Justification::centredRight);
+        addAndMakeVisible (pluginCount);
+
         pluginTable.setModel (&pluginModel);
         styleTable (pluginTable);
         auto& header = pluginTable.getHeader();
@@ -427,6 +432,11 @@ public:
         area.removeFromTop (2);
         note.setBounds (area.removeFromTop (34));
         area.removeFromTop (6);
+        auto searchRow = area.removeFromTop (28);
+        pluginCount.setBounds (searchRow.removeFromRight (juce::jmin (240, searchRow.getWidth() / 3)));
+        searchRow.removeFromRight (8);
+        pluginSearch.setBounds (searchRow.removeFromLeft (juce::jmin (420, searchRow.getWidth())));
+        area.removeFromTop (6);
 
         auto bottom = area.removeFromBottom (30);
         statusLabel.setBounds (bottom);
@@ -480,6 +490,12 @@ public:
     {
         if (builderWindow != nullptr)
             delete builderWindow.getComponent();
+    }
+
+    void focusSearch()
+    {
+        juce::Component::SafePointer<juce::TextEditor> editor (&pluginSearch);
+        juce::MessageManager::callAsync ([editor] { if (editor != nullptr && editor->isShowing()) editor->grabKeyboardFocus(); });
     }
 
     void refreshPresets()
@@ -605,16 +621,39 @@ private:
 
         stopTimer();
         refreshPlugins();
-        setStatus (ko ("스캔 끝: 플러그인 ") + juce::String (types.size()) + ko ("개 (스캔 창에서 고른 폴더 기준)"), false);
+        setStatus (ko ("스캔 끝: 플러그인 ") + juce::String (allTypes.size()) + ko ("개 (스캔 창에서 고른 폴더 기준)"), false);
     }
 
     void refreshPlugins()
     {
-        types = host.getAllEffectTypes();
+        allTypes = host.getAllEffectTypes();
         scanVst2Button.setEnabled (PluginHost::hasVst2Support());   // never a dead button: it switches VST2 on itself
+        applyPluginSearch();
+    }
+
+    /** The table shows the plugins the search box matches. The selection stays on the same plugin when it is still
+        shown (a row number would point at another plugin once rows are hidden), otherwise nothing is selected. */
+    void applyPluginSearch()
+    {
+        const int selectedRow = pluginTable.getSelectedRow();
+        const auto selectedKey = selectedRow >= 0 && selectedRow < types.size() ? PluginHost::keyFor (types[selectedRow]) : juce::String();
+        types = filterPlugins (allTypes, pluginSearch.getText());
         pluginTable.updateContent();
+        pluginTable.deselectAllRows();
+
+        if (selectedKey.isNotEmpty())
+            for (int i = 0; i < types.size(); ++i)
+                if (PluginHost::keyFor (types[i]) == selectedKey)
+                {
+                    pluginTable.selectRow (i);
+                    break;
+                }
+
         pluginTable.repaint();
         removeButton.setEnabled (pluginTable.getSelectedRow() >= 0);
+        pluginCount.setText (types.size() == allTypes.size() ? ko ("플러그인 ") + juce::String (allTypes.size()) + ko ("개")
+                                                             : ko ("검색 결과 ") + juce::String (types.size()) + ko ("개 / 전체 ") + juce::String (allTypes.size()) + ko ("개"),
+                             juce::dontSendNotification);
     }
 
     void presetButtonsEnabled()
@@ -687,6 +726,7 @@ private:
         setStatus (ko ("목록에서 뺐습니다 (다시 스캔하면 돌아옵니다): ") + types[row].name, false);
     }
 
+    /** '전부 사용': the plugins the table shows - all of them, or the ones a search narrowed it to. */
     void setAll (bool enabled)
     {
         for (const auto& d : types)
@@ -694,6 +734,9 @@ private:
 
         settings.setDisabledPlugins (host.getDisabledPlugins());
         pluginTable.repaint();
+
+        if (types.size() != allTypes.size())
+            setStatus (ko ("검색 결과 ") + juce::String (types.size()) + ko ("개를 '사용'으로 켰습니다 (검색을 지우면 전부 보입니다)"), false);
     }
 
     const PluginPreset* selectedPreset() const
@@ -923,7 +966,7 @@ private:
     PluginHost& host;
     LiveMixSettings& settings;
     juce::File presetsFolder;
-    juce::Array<juce::PluginDescription> types;
+    juce::Array<juce::PluginDescription> allTypes, types;   // every known effect plugin; the ones the search shows (the table's rows)
     std::vector<PluginPreset> presets;
     PluginModel pluginModel;
     PresetModel presetModel;
@@ -931,7 +974,8 @@ private:
     std::unique_ptr<juce::FileChooser> chooser;
     juce::Component::SafePointer<juce::DialogWindow> builderWindow;
 
-    juce::Label pluginsCaption, note, presetsCaption, presetsNote, statusLabel;
+    juce::Label pluginsCaption, note, pluginCount, presetsCaption, presetsNote, statusLabel;
+    juce::TextEditor pluginSearch;
     juce::ToggleButton vst2Toggle;
     juce::TableListBox pluginTable, presetTable;
     juce::TextButton scanVst3Button, scanVst2Button, removeButton, enableAllButton;
@@ -963,6 +1007,9 @@ void PluginManagerWindow::open()
 
     setVisible (true);
     toFront (true);
+
+    if (content != nullptr)
+        content->focusSearch();   // typing starts the search at once
 }
 
 void PluginManagerWindow::closeButtonPressed()

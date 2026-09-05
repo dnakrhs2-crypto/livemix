@@ -1,5 +1,6 @@
 #pragma once
 
+#include "LoudnessMeter.h"
 #include "MixModel.h"
 #include "audio/PluginChain.h"
 #include "audio/PluginHost.h"
@@ -102,6 +103,8 @@ public:
     PluginChain* getChannelChain (const juce::Uuid& id) const noexcept;
     PluginChain* getFxChain (const juce::Uuid& id) const noexcept;
     PluginChain& getMasterChain() noexcept { return *master.chain; }
+    /** The LUFS meter of the master output (fed after the master chain, before the output pair). */
+    LoudnessMeter& getLoudnessMeter() noexcept { return loudness; }
     void forEachChain (const std::function<void (PluginChain&)>& fn) const;
 
     struct Meter { float left = 0.0f, right = 0.0f; };
@@ -191,6 +194,7 @@ private:
     std::vector<std::unique_ptr<ChannelNode>> channels;
     std::vector<std::unique_ptr<FxNode>> fxNodes;
     MasterNode master;
+    LoudnessMeter loudness;   // the master output, K-weighted: what the LUFS window shows
 
     juce::AudioBuffer<float> chBuf, preBuf, masterBus;
     std::array<juce::AudioBuffer<float>, (size_t) maxFx> fxBus;

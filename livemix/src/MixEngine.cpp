@@ -284,6 +284,7 @@ void MixEngine::prepare (double newSampleRate, int newBlockSize)
         f->chain->prepare (newSampleRate, newBlockSize);
 
     master.chain->prepare (newSampleRate, newBlockSize);
+    loudness.prepare (newSampleRate);
 }
 
 void MixEngine::addToOutputs (float* const* outputs, int numOutputs, int first, const juce::AudioBuffer<float>& source, int offset, int numSamples) noexcept
@@ -475,6 +476,7 @@ void MixEngine::renderBlock (const float* const* inputs, int numInputs, float* c
 
         master.chain->process (masterBus, n);
         master.meter.push (masterBus.getMagnitude (0, 0, n), masterBus.getMagnitude (1, 0, n));
+        loudness.process (masterBus.getReadPointer (0), masterBus.getReadPointer (1), n);
         addToOutputs (outputs, numOutputs, master.outputFirst.load (std::memory_order_relaxed), masterBus, offset, n);
     }
 }

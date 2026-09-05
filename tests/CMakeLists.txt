@@ -23,6 +23,8 @@ target_sources(EnqueueTests PRIVATE
     MixDocumentTests.cpp
     MuteGroupsTests.cpp
     PluginPresetTests.cpp
+    PluginSearchTests.cpp
+    LoudnessMeterTests.cpp
     ResamplerTests.cpp
     CueListTests.cpp
     YouTubeDownloaderTests.cpp

@@ -21,6 +21,8 @@ public:
 
     std::function<void()> onOpenChain;
     std::function<void()> onAddPlugin;
+    /** The LUFS button: the loudness meter window. */
+    std::function<void()> onOpenLoudness;
     /** The '+ 추가' button: the plugin menu opens next to it. */
     juce::Component& getAddPluginButton() noexcept { return addPluginButton; }
     std::function<void (int slotIndex)> onOpenPluginEditor;
@@ -46,7 +48,7 @@ private:
     juce::StringArray outputNames;
     juce::Label badge, title, note, chainCaption, latencyCaption, latencyValue, latencyNote, compactLatency, outputCaption, meterCaption;
     std::vector<std::unique_ptr<juce::TextButton>> chips;
-    juce::TextButton openChainButton, addPluginButton;
+    juce::TextButton openChainButton, addPluginButton, lufsButton;
     juce::ComboBox outputCombo;
     MeterBar meter_ { true };
     bool refreshing = false;

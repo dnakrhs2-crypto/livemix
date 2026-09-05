@@ -28,6 +28,11 @@ MasterCard::MasterCard (MixDocument& doc) : document (doc)
     addPluginButton.setWantsKeyboardFocus (false);
     addPluginButton.onClick = [this] { if (onAddPlugin) onAddPlugin(); };
     addAndMakeVisible (addPluginButton);
+    lufsButton.setButtonText ("LUFS");
+    lufsButton.setTooltip (ko ("마스터 출력의 라우드니스 미터 (LUFS, 트루 피크)"));
+    lufsButton.setWantsKeyboardFocus (false);
+    lufsButton.onClick = [this] { if (onOpenLoudness) onOpenLoudness(); };
+    addAndMakeVisible (lufsButton);
 
     styleCaption (latencyCaption, ko ("지연"));
     addAndMakeVisible (latencyCaption);
@@ -159,7 +164,7 @@ void MasterCard::resized()
         row.removeFromLeft (8);
         title.setBounds (row.removeFromLeft (64));
         row.removeFromLeft (8);
-        const bool withOutput = row.getWidth() >= 340;   // the output pair only where the meter keeps its room
+        const bool withOutput = row.getWidth() >= 404;   // the output pair only where the meter keeps its room
         outputCombo.setVisible (withOutput);
 
         if (withOutput)
@@ -169,6 +174,8 @@ void MasterCard::resized()
         }
 
         openChainButton.setBounds (row.removeFromRight (88));
+        row.removeFromRight (8);
+        lufsButton.setBounds (row.removeFromRight (56));
         row.removeFromRight (10);
         meter_.setBounds (row.reduced (0, 3));
         return;
@@ -188,11 +195,13 @@ void MasterCard::resized()
         area.removeFromTop (8);
 
         auto chainRow = area.removeFromTop (30);
-        chainCaption.setBounds (chainRow.removeFromLeft (juce::jmin (110, juce::jmax (60, chainRow.getWidth() - 92 - 76 - 16))));
+        chainCaption.setBounds (chainRow.removeFromLeft (juce::jmin (110, juce::jmax (60, chainRow.getWidth() - 92 - 76 - 56 - 24))));
         chainRow.removeFromLeft (8);
         openChainButton.setBounds (chainRow.removeFromLeft (92));
         chainRow.removeFromLeft (8);
         addPluginButton.setBounds (chainRow.removeFromLeft (76));
+        chainRow.removeFromLeft (8);
+        lufsButton.setBounds (chainRow.removeFromLeft (56));
 
         if (! chips.empty())
         {
@@ -228,6 +237,8 @@ void MasterCard::resized()
     openChainButton.setBounds (buttons.removeFromLeft (92));
     buttons.removeFromLeft (8);
     addPluginButton.setBounds (buttons.removeFromLeft (76));
+    buttons.removeFromLeft (8);
+    lufsButton.setBounds (buttons.removeFromLeft (56));
     area.removeFromBottom (6);
     ChipFlow::layout (chips, area, 30, true);
 

@@ -50,6 +50,12 @@ public:
     juce::StringArray getDisabledPlugins() const;
     void setDisabledPlugins (const juce::StringArray& keys);
 
+    /** The LUFS meter's target (-14 unless chosen: YouTube / Spotify) and whether its window stays over the others. */
+    double getLufsTarget() const;
+    void setLufsTarget (double lufs);
+    bool getLufsAlwaysOnTop() const;
+    void setLufsAlwaysOnTop (bool on);
+
     juce::String getBackupUrl() const;       // WebDAV base, e.g. https://parkdoomin.synology.me:5006
     void setBackupUrl (const juce::String& url);
     juce::String getBackupFolder() const;    // e.g. /LiveMix 백업

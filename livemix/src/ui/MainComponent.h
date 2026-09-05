@@ -5,6 +5,7 @@
 #include "FxDrawer.h"
 #include "GlobalHotkeys.h"
 #include "LiveMixSettings.h"
+#include "LoudnessWindow.h"
 #include "MasterCard.h"
 #include "MixDocument.h"
 #include "MuteGroups.h"
@@ -98,6 +99,7 @@ private:
     void layoutFxDrawer();       // the drawer's size inside its viewport
     void muteGroupsChanged();    // badges, cards, drawer
     void showPluginManager();
+    void showLoudnessWindow();   // the LUFS meter (the master card's button, the 설정 menu)
     void chooseDevice (const juce::String& name);
     void deviceChosen();   // the operator picked a device / buffer: the session remembers it
     void loadSession (const juce::File& file);
@@ -117,6 +119,7 @@ private:
     PluginWindowManager windows;
     WebDavBackup backup;
     std::unique_ptr<PluginManagerWindow> pluginManagerWindow;   // made on first use, hidden on close
+    std::unique_ptr<LoudnessWindow> loudnessWindow;             // the same
     bool safeMode = false;
     juce::StringArray faultedPlugins, stalledPlugins;   // told once each, kept in the notice until the session changes
 
