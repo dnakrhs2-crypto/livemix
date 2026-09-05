@@ -337,17 +337,7 @@ public:
         vst2Toggle.setToggleState (host.isVst2Enabled(), juce::dontSendNotification);
         vst2Toggle.setEnabled (PluginHost::hasVst2Support());
         vst2Toggle.setWantsKeyboardFocus (false);
-        vst2Toggle.onClick = [this]
-        {
-            const bool on = vst2Toggle.getToggleState();
-            settings.setVst2Enabled (on);
-            host.setVst2Enabled (on);
-            refreshPlugins();
-            setStatus (on ? ko ("VST2 플러그인을 씁니다. 'VST2 스캔'으로 찾으세요.") : ko ("VST2 플러그인은 목록과 메뉴에서 빠집니다 (세션에 든 VST2 자리는 비워 둡니다)."), false);
-
-            if (owner.onVst2Changed)
-                owner.onVst2Changed (on);
-        };
+        vst2Toggle.onClick = [this] { applyVst2Switch (vst2Toggle.getToggleState()); };
         addAndMakeVisible (vst2Toggle);
 
         styleCaption (note, PluginHost::hasVst2Support()
@@ -612,7 +602,7 @@ private:
     void refreshPlugins()
     {
         types = host.getAllEffectTypes();
-        scanVst2Button.setEnabled (PluginHost::hasVst2Support() && host.isVst2Enabled());
+        scanVst2Button.setEnabled (PluginHost::hasVst2Support());   // never a dead button: it switches VST2 on itself
         pluginTable.updateContent();
         pluginTable.repaint();
         removeButton.setEnabled (pluginTable.getSelectedRow() >= 0);
@@ -632,12 +622,30 @@ private:
         statusLabel.setText (text, juce::dontSendNotification);
     }
 
+    /** The switch's work: stored, applied to the host, the table and the owner told. */
+    void applyVst2Switch (bool on)
+    {
+        vst2Toggle.setToggleState (on, juce::dontSendNotification);
+        settings.setVst2Enabled (on);
+        host.setVst2Enabled (on);
+        refreshPlugins();
+        setStatus (on ? ko ("VST2 플러그인을 씁니다. 'VST2 스캔'으로 찾으세요.") : ko ("VST2 플러그인은 목록과 메뉴에서 빠집니다 (세션에 든 VST2 자리는 비워 둡니다)."), false);
+
+        if (owner.onVst2Changed)
+            owner.onVst2Changed (on);
+    }
+
     void scan (const juce::String& formatName)
     {
         if (formatName == "VST" && ! host.isVst2Enabled())
         {
-            setStatus (PluginHost::hasVst2Support() ? ko ("먼저 'VST2 플러그인 사용'을 켜세요.") : ko ("이 빌드에는 VST2 지원이 없습니다."), true);
-            return;
+            if (! PluginHost::hasVst2Support())
+            {
+                setStatus (ko ("이 빌드에는 VST2 지원이 없습니다."), true);
+                return;
+            }
+
+            applyVst2Switch (true);   // asking for a VST2 scan is asking for VST2: the switch goes on, then the scan
         }
 
         auto* format = host.getFormat (formatName);   // VST2 is registered by the switch, so it is here once that is on
@@ -930,8 +938,8 @@ PluginManagerWindow::PluginManagerWindow (PluginHost& host, LiveMixSettings& set
     content = c;
     setContentOwned (c, true);
     setResizable (true, false);
-    setResizeLimits (720, 560, 10000, 10000);
-    centreWithSize (getWidth(), getHeight());
+    setResizeLimits (600, 480, 10000, 10000);   // a portrait monitor at 150% is about 720 wide
+    centreWithSize (getWidth(), getHeight());   // the owner then centres it on its own display (centreAroundComponent)
 }
 
 PluginManagerWindow::~PluginManagerWindow()

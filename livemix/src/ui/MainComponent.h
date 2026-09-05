@@ -122,6 +122,8 @@ private:
 
     TopBar topBar;
     juce::MenuBarComponent menuBar;
+    static constexpr int minCardsRoom = 250;   // the mics keep at least this much height; the master folds to its strip before that
+    bool relayingOutCards = false;
     juce::Viewport viewport;
     juce::Component cardsHolder;
     std::vector<std::unique_ptr<ChannelCard>> cards;

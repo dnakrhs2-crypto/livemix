@@ -52,6 +52,7 @@ MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s)
     fxDrawerViewport.setScrollBarsShown (true, false);
     addChildComponent (fxDrawerViewport);
     fxDrawer.onClose = [this] { showDrawer (Drawer::none); };
+    fxDrawer.onPreferredHeightChanged = [this] { if (drawer == Drawer::fx) layoutFxDrawer(); };
     fxDrawer.onOpenChain = [this] (const juce::Uuid& id)
     {
         if (const auto* f = document.getSession().findFx (id))
@@ -274,6 +275,13 @@ void MainComponent::layoutCards()
     addChannelButton.setEnabled ((int) cards.size() < MixSession::maxChannels);
     y += 56 + gap;
     cardsHolder.setSize (width, juce::jmax (1, y));
+
+    // the new height may have brought the scrollbar (or taken it): the width changed, so once more at that width
+    if (! relayingOutCards && juce::jmax (100, viewport.getMaximumVisibleWidth()) != width)
+    {
+        const juce::ScopedValueSetter<bool> once (relayingOutCards, true);
+        layoutCards();
+    }
 }
 
 void MainComponent::resized()
@@ -294,21 +302,19 @@ void MainComponent::resized()
         const int textHeight = juce::jlimit (26, maxTextHeight, needed);
         noticeText.setScrollbarsShown (needed > maxTextHeight);
         auto bar = area.removeFromTop (textHeight + 14);
-        noticeClose.setBounds (bar.removeFromRight (44).reduced (8, juce::jmax (0, (bar.getHeight() - 28) / 2)));
+        noticeClose.setBounds (bar.removeFromRight (48).reduced (7, juce::jmax (0, (bar.getHeight() - 34) / 2)));
         noticeText.setBounds (bar.reduced (16, 7));
     }
 
     noticeText.setVisible (noticeVisible);
     noticeClose.setVisible (noticeVisible);
     auto status = area.removeFromBottom (30);
-    const bool narrowStatus = getWidth() < 700;   // portrait: the left text takes the whole line, the tray hint goes
-    statusRight.setVisible (! narrowStatus);
+    const bool narrowStatus = getWidth() < 700;   // portrait: a short tray hint, the rest of the line for the status
+    statusRight.setText (narrowStatus ? ko ("최소화·X → 트레이") : ko ("최소화하면 트레이에서 계속 동작합니다"), juce::dontSendNotification);
     auto statusR = status.reduced (16, 0);
     statusR.removeFromRight (18);   // room for the grip
-    statusLeft.setBounds (narrowStatus ? statusR : statusR.removeFromLeft (statusR.getWidth() / 2));
-
-    if (! narrowStatus)
-        statusRight.setBounds (statusR);
+    statusRight.setBounds (statusR.removeFromRight (narrowStatus ? 124 : statusR.getWidth() / 2));
+    statusLeft.setBounds (statusR);
 
     if (cornerGrip != nullptr)
     {
@@ -317,18 +323,32 @@ void MainComponent::resized()
         cornerGrip->setBounds (getLocalBounds().removeFromBottom (18).removeFromRight (18));
     }
 
-    const int drawerW = getWidth() < 700 ? getWidth() : juce::jmin (440, juce::jmax (320, getWidth() / 3));   // portrait: the whole width
+    // a side column only when the cards keep a usable width beside it (780+); narrower, the drawer takes the whole width
+    const bool sideDrawer = getWidth() >= 1100;
+    const int drawerW = sideDrawer ? juce::jmin (440, juce::jmax (320, getWidth() / 3)) : getWidth();
     const auto drawerArea = area.withLeft (getWidth() - drawerW);   // the right edge, over the cards and the master
     chainDrawer.setBounds (drawerArea);
     fxDrawerViewport.setBounds (drawerArea);
-    layoutFxDrawer();
     chainDrawer.setVisible (drawer == Drawer::chain);
     fxDrawerViewport.setVisible (drawer == Drawer::fx);
+
+    if (drawer == Drawer::fx)
+        layoutFxDrawer();   // (a hidden drawer is laid out when it opens)
 
     if (drawer != Drawer::none)
         area.setRight (getWidth() - drawerW);
 
-    const int masterH = masterCard.getPreferredHeight (area.getWidth() - 32);   // grows with its chip rows
+    // the master takes its full form only while the mics keep a card's worth of room; otherwise it folds to a strip
+    const int cardWidth = area.getWidth() - 32;
+    masterCard.setStrip (false);
+    int masterH = masterCard.getPreferredHeight (cardWidth);   // grows with its chip rows
+
+    if (area.getHeight() - (masterH + 16) < minCardsRoom)
+    {
+        masterCard.setStrip (true);
+        masterH = masterCard.getPreferredHeight (cardWidth);
+    }
+
     masterCard.setBounds (area.removeFromBottom (masterH + 16).reduced (16, 8));   // the 8 px above and below are the layout's, not the card's
     viewport.setBounds (area.reduced (16, 12));
     layoutCards();
@@ -421,6 +441,7 @@ void MainComponent::showPluginManager()
     if (pluginManagerWindow == nullptr)
     {
         pluginManagerWindow = std::make_unique<PluginManagerWindow> (engine.getPluginHost(), settings, PluginPreset::defaultFolder());
+        pluginManagerWindow->centreAroundComponent (this, pluginManagerWindow->getWidth(), pluginManagerWindow->getHeight());   // on this display, inside it
         pluginManagerWindow->onVst2Changed = [this] (bool on)
         {
             // the switch changes what the menus offer and what a session opened from now on loads; the chains of
@@ -554,8 +575,11 @@ void MainComponent::deviceChosen()
 //==============================================================================
 void MainComponent::timerCallback()
 {
+    const auto inView = viewport.getViewArea();   // a tall window scrolls: only the cards on screen repaint their meters
+
     for (auto& card : cards)
-        card->pushMeter (engine.readChannelMeter (card->getChannelId()));
+        if (card->getBounds().intersects (inView))
+            card->pushMeter (engine.readChannelMeter (card->getChannelId()));
 
     for (const auto& f : document.getSession().fx)
     {
@@ -574,10 +598,15 @@ void MainComponent::timerCallback()
     const double now = juce::Time::getMillisecondCounterHiRes();
 
     if (now < statusUntilMs)
+    {
         statusLeft.setText (statusText, juce::dontSendNotification);
+    }
     else
+    {
+        statusLeft.setColour (juce::Label::textColourId, Palette::dimText);   // an error's red goes with its text
         statusLeft.setText ((running ? ko ("오디오 동작 중") : ko ("오디오 멈춤 - 설정에서 ASIO 장치를 확인하세요")) + "   " + ko ("끊김 ") + juce::String (engine.getXRunCount()) + ko ("회"),
                             juce::dontSendNotification);
+    }
 
     document.pollPluginEdits();   // a knob turned in a plugin editor: the title shows the session as changed
 
@@ -730,6 +759,12 @@ static void commitPendingRename()
 
 bool MainComponent::keyPressed (const juce::KeyPress& key, juce::Component*)
 {
+    if (key == juce::KeyPress (juce::KeyPress::escapeKey) && drawer != Drawer::none)
+    {
+        showDrawer (Drawer::none);   // Esc closes the chain / FX drawer (in a narrow window it covers everything)
+        return true;
+    }
+
     // the session shortcuts, wherever the focus is in the window (a text field lets them through)
     const auto mods = key.getModifiers();
 

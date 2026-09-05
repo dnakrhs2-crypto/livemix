@@ -55,7 +55,8 @@ public:
     {
         const int rows = stereo ? 2 : 1;
         auto area = getLocalBounds();
-        const int scaleH = 12;
+        const bool showScale = getHeight() >= 40 && getWidth() >= 160;   // a small meter (a folded master) has no room for the labels
+        const int scaleH = showScale ? 12 : 0;
         auto bars = area.removeFromTop (juce::jmax (0, area.getHeight() - scaleH));
         const int gap = 4;
         const int barH = juce::jmax (4, (bars.getHeight() - gap * (rows - 1)) / rows);
@@ -85,6 +86,9 @@ public:
                 g.fillRect (juce::Rectangle<float> (bar.getX() + bar.getWidth() * peak - 1.0f, bar.getY(), 2.0f, bar.getHeight()));
             }
         }
+
+        if (! showScale)
+            return;
 
         g.setColour (Palette::dimText);
         g.setFont (juce::Font (juce::FontOptions (pt (10.5f))));

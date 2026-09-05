@@ -31,7 +31,7 @@ PluginEditorWindow::PluginEditorWindow (juce::AudioPluginInstance& p, const juce
     const bool canResize = editor->isResizable();
     setContentOwned (editor, true);
     setResizable (canResize, false);
-    centreWithSize (getWidth(), getHeight());
+    centreAroundComponent (nullptr, getWidth(), getHeight());   // on the active window's display, inside it (a GUI taller than a portrait screen keeps its title bar)
     setVisible (true);
     toFront (true);
 }

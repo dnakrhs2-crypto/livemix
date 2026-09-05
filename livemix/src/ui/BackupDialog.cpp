@@ -365,6 +365,7 @@ namespace
         void resized() override
         {
             auto area = getLocalBounds().reduced (20, 16);
+            const bool twoRows = area.getWidth() < 760;   // a narrow window (a portrait monitor): the buttons on a row of their own
             auto row = area.removeFromTop (30);
             idCaption.setBounds (row.removeFromLeft (52));
             idEditor.setBounds (row.removeFromLeft (150));
@@ -372,11 +373,22 @@ namespace
             passwordCaption.setBounds (row.removeFromLeft (64));
             passwordEditor.setBounds (row.removeFromLeft (150));
             row.removeFromLeft (12);
+
+            if (twoRows)
+            {
+                remember.setBounds (row.removeFromLeft (juce::jmin (130, juce::jmax (0, row.getWidth()))));
+                area.removeFromTop (6);
+                row = area.removeFromTop (30);
+            }
+
             createButton.setBounds (row.removeFromRight (100));
             row.removeFromRight (8);
             signInButton.setBounds (row.removeFromRight (90));
             row.removeFromRight (8);
-            remember.setBounds (row.removeFromLeft (juce::jmin (130, juce::jmax (0, row.getWidth()))));
+
+            if (! twoRows)
+                remember.setBounds (row.removeFromLeft (juce::jmin (130, juce::jmax (0, row.getWidth()))));
+
             area.removeFromTop (6);
             hint.setBounds (area.removeFromTop (34));
             area.removeFromTop (8);

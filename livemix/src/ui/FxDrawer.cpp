@@ -52,6 +52,7 @@ FxDrawer::FxDrawer (MixDocument& doc) : document (doc)
     returnSlider.setRange (0.0, 100.0, 1.0);
     returnSlider.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
     returnSlider.setWantsKeyboardFocus (false);
+    returnSlider.setScrollWheelEnabled (false);   // the wheel over it scrolls the drawer; a live level must not turn by accident
     returnSlider.onValueChange = [this]
     {
         returnValue.setText (juce::String ((int) std::lround (returnSlider.getValue())) + "%", juce::dontSendNotification);
@@ -175,6 +176,9 @@ void FxDrawer::refresh()
     rebuildChain();
     rebuildSenders();
     resized();
+
+    if (onPreferredHeightChanged && getPreferredHeight (getWidth()) != getHeight())
+        onPreferredHeightChanged();   // another tab's longer chain, a mic more or fewer: the viewport sizes the drawer again
 }
 
 void FxDrawer::rebuildTabs()
@@ -296,7 +300,7 @@ int FxDrawer::layout (int width, bool apply)
 
     auto area = juce::Rectangle<int> (0, 0, width, 100000).reduced (18, 16);
     auto head = area.removeFromTop (34);
-    place (closeButton, head.removeFromRight (34).reduced (0, 3));
+    place (closeButton, head.removeFromRight (36));
     head.removeFromRight (8);
     place (title, head);
     area.removeFromTop (10);
@@ -305,10 +309,11 @@ int FxDrawer::layout (int width, bool apply)
     place (addFxButton, tabRow.removeFromRight (90));
     tabRow.removeFromRight (6);
 
-    for (auto& tab : tabs)
+    for (size_t i = 0; i < tabs.size(); ++i)
     {
-        const int w = juce::jmin (150, juce::jmax (80, tabRow.getWidth() / juce::jmax (1, (int) tabs.size())));
-        place (*tab, tabRow.removeFromLeft (w));
+        const int left = (int) tabs.size() - (int) i;   // the tabs still to place share the width still there
+        const int w = juce::jmin (150, juce::jmax (44, (tabRow.getWidth() - 6 * (left - 1)) / left));
+        place (*tabs[i], tabRow.removeFromLeft (w));
         tabRow.removeFromLeft (6);
     }
 

@@ -37,6 +37,10 @@ MasterCard::MasterCard (MixDocument& doc) : document (doc)
     styleCaption (latencyNote, "");
     latencyNote.setFont (bodyFont (12.5f));
     addAndMakeVisible (latencyNote);
+    styleCaption (compactLatency, "");   // the stack: the latency in one line at the right of the meter's caption
+    compactLatency.setFont (bodyFont (12.5f));
+    compactLatency.setJustificationType (juce::Justification::centredRight);
+    addChildComponent (compactLatency);
 
     styleCaption (outputCaption, ko ("메인 출력"));
     addAndMakeVisible (outputCaption);
@@ -65,6 +69,17 @@ void MasterCard::setLatency (double ms, int bufferSize, double sampleRate)
     latencyValue.setText (ms > 0.0 ? juce::String (ms, 1) + " ms" : "-", juce::dontSendNotification);
     latencyNote.setText (bufferSize > 0 ? juce::String (bufferSize) + ko (" 샘플") + " · " + juce::String (sampleRate / 1000.0, 1) + " kHz" : ko ("장치 없음"),
                          juce::dontSendNotification);
+    compactLatency.setText (ms > 0.0 ? ko ("지연 ") + juce::String (ms, 1) + " ms · " + juce::String (bufferSize) + ko (" 샘플") : ko ("장치 없음"),
+                            juce::dontSendNotification);
+}
+
+void MasterCard::setStrip (bool folded)
+{
+    if (strip == folded)
+        return;
+
+    strip = folded;
+    resized();
 }
 
 void MasterCard::refresh()
@@ -96,11 +111,14 @@ void MasterCard::rebuildChain()
 
 int MasterCard::getPreferredHeight (int width) const
 {
+    if (strip)
+        return stripHeight;
+
     if (width < narrowBelow)
     {
-        // stacked: head, chain, latency, output
+        // the compact stack: the head row (with the output pair), the chain row and its chips, the meter's caption row, the meter
         const int rows = ChipFlow::layout (chips, juce::Rectangle<int> (0, 0, juce::jmax (1, width - 28), 1), 30, false);
-        return 24 + 34 + 6 + 20 + 12 + (22 + rows * ChipFlow::rowStep + 6 + 30) + 12 + (22 + 34) + 12 + (22 + 30 + 10 + 18 + 46);
+        return 24 + 34 + 8 + 30 + (rows > 0 ? 6 + rows * ChipFlow::rowStep : 0) + 10 + 18 + 46;
     }
 
     // the chain column's width in resized() at this card width, then the rows the chips take in it
@@ -113,38 +131,78 @@ int MasterCard::getPreferredHeight (int width) const
 void MasterCard::resized()
 {
     auto area = getLocalBounds().reduced (14, 12);
+    const bool stacked = ! strip && getWidth() < narrowBelow;
 
-    if (getWidth() < narrowBelow)
+    // what each form shows: the columns everything; the stack no note and no latency block (the latency goes on the
+    // meter's caption row); the strip only the badge, title, meter, chain button and output pair
+    note.setVisible (! strip && ! stacked);
+    latencyCaption.setVisible (! strip && ! stacked);
+    latencyValue.setVisible (! strip && ! stacked);
+    latencyNote.setVisible (! strip && ! stacked);
+    compactLatency.setVisible (stacked);
+    chainCaption.setVisible (! strip);
+    addPluginButton.setVisible (! strip);
+    meterCaption.setVisible (! strip);
+    outputCaption.setVisible (! strip);
+    outputCombo.setVisible (true);   // the strip may hide it below
+
+    for (auto& chip : chips)
+        chip->setVisible (! strip);
+
+    if (strip)
     {
-        // a tall, narrow window: the four blocks stack
+        // one row: badge, title, the meter across the middle, the chain button, the output pair
+        auto row = area.withSizeKeepingCentre (area.getWidth(), 34);
+        badge.setBounds (row.removeFromLeft (32).reduced (0, 2));
+        row.removeFromLeft (8);
+        title.setBounds (row.removeFromLeft (64));
+        row.removeFromLeft (8);
+        const bool withOutput = row.getWidth() >= 340;   // the output pair only where the meter keeps its room
+        outputCombo.setVisible (withOutput);
+
+        if (withOutput)
+        {
+            outputCombo.setBounds (row.removeFromRight (juce::jmin (110, juce::jmax (90, row.getWidth() / 4))).reduced (0, 2));
+            row.removeFromRight (8);
+        }
+
+        openChainButton.setBounds (row.removeFromRight (88));
+        row.removeFromRight (10);
+        meter_.setBounds (row.reduced (0, 3));
+        return;
+    }
+
+    if (stacked)
+    {
+        // a narrow window: the head row carries the output pair, the chain row its buttons, then the chips and the meter
         auto headRow = area.removeFromTop (34);
         badge.setBounds (headRow.removeFromLeft (32).reduced (0, 2));
         headRow.removeFromLeft (10);
+        outputCombo.setBounds (headRow.removeFromRight (juce::jmin (150, juce::jmax (90, headRow.getWidth() / 3))).reduced (0, 2));
+        headRow.removeFromRight (6);
+        outputCaption.setBounds (headRow.removeFromRight (60));
+        headRow.removeFromRight (6);
         title.setBounds (headRow);
-        area.removeFromTop (6);
-        note.setBounds (area.removeFromTop (20));
-        area.removeFromTop (12);
+        area.removeFromTop (8);
 
-        chainCaption.setBounds (area.removeFromTop (22));
-        const int rows = ChipFlow::layout (chips, area, 30, true);
-        area.removeFromTop (rows * ChipFlow::rowStep + 6);
-        auto buttons = area.removeFromTop (30);
-        openChainButton.setBounds (buttons.removeFromLeft (92));
-        buttons.removeFromLeft (8);
-        addPluginButton.setBounds (buttons.removeFromLeft (76));
-        area.removeFromTop (12);
+        auto chainRow = area.removeFromTop (30);
+        chainCaption.setBounds (chainRow.removeFromLeft (juce::jmin (110, juce::jmax (60, chainRow.getWidth() - 92 - 76 - 16))));
+        chainRow.removeFromLeft (8);
+        openChainButton.setBounds (chainRow.removeFromLeft (92));
+        chainRow.removeFromLeft (8);
+        addPluginButton.setBounds (chainRow.removeFromLeft (76));
 
-        latencyCaption.setBounds (area.removeFromTop (22));
-        auto lat = area.removeFromTop (34);
-        latencyValue.setBounds (lat.removeFromLeft (juce::jmin (140, lat.getWidth() / 2)));
-        lat.removeFromLeft (10);
-        latencyNote.setBounds (lat);
-        area.removeFromTop (12);
+        if (! chips.empty())
+        {
+            area.removeFromTop (6);
+            const int rows = ChipFlow::layout (chips, area, 30, true);
+            area.removeFromTop (rows * ChipFlow::rowStep);
+        }
 
-        outputCaption.setBounds (area.removeFromTop (22));
-        outputCombo.setBounds (area.removeFromTop (30).withWidth (juce::jmin (220, area.getWidth())));
         area.removeFromTop (10);
-        meterCaption.setBounds (area.removeFromTop (18));
+        auto captionRow = area.removeFromTop (18);
+        compactLatency.setBounds (captionRow.removeFromRight (juce::jmin (220, captionRow.getWidth() / 2)));
+        meterCaption.setBounds (captionRow);
         meter_.setBounds (area.removeFromTop (juce::jmin (46, juce::jmax (0, area.getHeight()))));
         return;
     }

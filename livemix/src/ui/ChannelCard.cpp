@@ -21,6 +21,7 @@ struct ChannelCard::SendRow : public juce::Component
         fader.setRange (0.0, 100.0, 1.0);
         fader.setTextBoxStyle (juce::Slider::NoTextBox, true, 0, 0);
         fader.setWantsKeyboardFocus (false);
+        fader.setScrollWheelEnabled (false);   // the wheel over it scrolls the cards; a live send must not turn by accident
         fader.onValueChange = [this]
         {
             if (! owner.refreshing)
@@ -52,6 +53,7 @@ struct ChannelCard::SendRow : public juce::Component
     {
         badge.setText ("FX" + juce::String (index + 1), juce::dontSendNotification);
         fxName.setText (fx.name.trim() == "FX " + juce::String (index + 1) ? juce::String() : fx.name, juce::dontSendNotification);   // the default name repeats the badge
+        fxName.setTooltip (fx.name);
         fader.setValue (send.amount * 100.0, juce::dontSendNotification);
         value.setText (juce::String ((int) std::lround (send.amount * 100.0)) + "%", juce::dontSendNotification);
         preToggle.setToggleState (send.pre, juce::dontSendNotification);
@@ -261,6 +263,7 @@ void ChannelCard::rebuildChain()
         const auto& slot = chain->getSlot (i);
         const auto text = slot.plugin != nullptr ? slot.plugin->getName() : slot.state.name + ko (" (없음)");
         auto chip = std::make_unique<ChainChip> (i, text, slot.bypassed.load() || slot.plugin == nullptr);
+        chip->setTooltip (text);   // a narrow card cuts the name short
         chip->onClick = [this, i] { if (onOpenPluginEditor) onOpenPluginEditor (channelId, i); };
         addAndMakeVisible (*chip);
         chips.push_back (std::move (chip));

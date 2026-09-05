@@ -337,8 +337,23 @@ public:
             setContentOwned (content, true);
             addKeyListener (content);   // Ctrl+S / Ctrl+Shift+S / Ctrl+N from anywhere in the window
 
+            const auto& displays = juce::Desktop::getInstance().getDisplays();
+
             if (! restoreWindowStateFromString (settings.getWindowState()))
-                centreWithSize (1440, 900);
+            {
+                // the first window fits the screen it opens on (a portrait or a small monitor gets a smaller one)
+                const auto screen = displays.getPrimaryDisplay() != nullptr ? displays.getPrimaryDisplay()->userBounds.toNearestInt() : juce::Rectangle<int> (0, 0, 1920, 1080);
+                centreWithSize (juce::jmin (1440, screen.getWidth() - 24), juce::jmin (900, screen.getHeight() - 24));
+            }
+
+            // whatever was restored stays inside the display it is on (a state saved on a bigger or a second monitor,
+            // or before a scale change, must not leave the title bar or the grip off screen)
+            if (! isFullScreen())
+                if (auto* display = displays.getDisplayForRect (getBounds()))
+                {
+                    const auto screen = display->userBounds.toNearestInt();
+                    setBounds (getBounds().withSize (juce::jmin (getWidth(), screen.getWidth()), juce::jmin (getHeight(), screen.getHeight())).constrainedWithin (screen));
+                }
 
             setVisible (true);
             document.onValueChanged = [this, original = document.onValueChanged, &document]

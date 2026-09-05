@@ -265,6 +265,32 @@ namespace
     juce::Component::SafePointer<juce::DialogWindow> openDialog;
 }
 
+namespace
+{
+    /** The settings' own window: closing it (the title bar, Esc) deletes it - not modal, so the mics stay usable meanwhile. */
+    class SettingsWindow : public juce::DialogWindow
+    {
+    public:
+        SettingsWindow() : DialogWindow (ko ("설정"), Palette::card, true, true) {}
+
+        void closeButtonPressed() override
+        {
+            juce::MessageManager::callAsync ([] { SettingsDialog::closeIfOpen(); });   // not from inside its own callback
+        }
+
+        bool keyPressed (const juce::KeyPress& key) override
+        {
+            if (key == juce::KeyPress (juce::KeyPress::escapeKey))
+            {
+                closeButtonPressed();   // DialogWindow's own Esc would only hide it
+                return true;
+            }
+
+            return DialogWindow::keyPressed (key);
+        }
+    };
+}
+
 void SettingsDialog::show (MixEngine& engine, LiveMixSettings& settings, juce::Component* centreAround, std::function<void()> onDeviceChanged,
                            std::function<void()> onHotkeysChanged, std::function<void (bool capturing)> onHotkeyCapture)
 {
@@ -274,22 +300,30 @@ void SettingsDialog::show (MixEngine& engine, LiveMixSettings& settings, juce::C
         return;
     }
 
-    juce::DialogWindow::LaunchOptions options;
-    options.content.setOwned (new SettingsContent (engine, settings, std::move (onDeviceChanged), std::move (onHotkeysChanged), std::move (onHotkeyCapture)));
-    options.dialogTitle = ko ("설정");
-    options.dialogBackgroundColour = Palette::card;
-    options.escapeKeyTriggersCloseButton = true;
-    options.useNativeTitleBar = true;
-    options.resizable = false;
-    options.componentToCentreAround = centreAround;
-    openDialog = options.launchAsync();
+    auto* content = new SettingsContent (engine, settings, std::move (onDeviceChanged), std::move (onHotkeysChanged), std::move (onHotkeyCapture));
+    auto* scroller = new juce::Viewport();
+    scroller->setViewedComponent (content, true);
+    scroller->setScrollBarsShown (true, false);
+    scroller->setSize (content->getWidth() + scroller->getScrollBarThickness(), content->getHeight());
+
+    auto* window = new SettingsWindow();
+    window->setUsingNativeTitleBar (true);
+    window->setContentOwned (scroller, true);   // the window may be shorter than the settings: they scroll
+    window->setResizable (true, false);
+    window->setResizeLimits (scroller->getWidth(), 320, scroller->getWidth(), content->getHeight() + 40);
+
+    if (centreAround != nullptr)
+        window->centreAroundComponent (centreAround, window->getWidth(), window->getHeight());   // on its display, inside it
+    else
+        window->centreWithSize (window->getWidth(), window->getHeight());
+
+    window->setVisible (true);
+    window->toFront (true);
+    openDialog = window;
 }
 
 void SettingsDialog::closeIfOpen()
 {
-    if (openDialog != nullptr)
-        openDialog->exitModalState (0);
-
     openDialog.deleteAndZero();
 }
 

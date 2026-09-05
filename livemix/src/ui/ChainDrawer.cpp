@@ -51,6 +51,7 @@ struct ChainDrawer::Row : public juce::Component
         number.setText (juce::String (index + 1), juce::dontSendNotification);
         const bool missing = slot.plugin == nullptr;
         name.setText (missing ? slot.state.name + ko (" (없음)") : slot.plugin->getName(), juce::dontSendNotification);
+        name.setTooltip (name.getText());   // a narrow drawer cuts the name short
         bypassed = slot.bypassed.load() || missing;
         name.setColour (juce::Label::textColourId, bypassed ? Palette::dimText : Palette::text);
         power.setToggleState (! bypassed, juce::dontSendNotification);
@@ -531,7 +532,7 @@ void ChainDrawer::resized()
 {
     auto area = getLocalBounds().reduced (18, 16);
     auto head = area.removeFromTop (34);
-    closeButton.setBounds (head.removeFromRight (34).reduced (0, 3));
+    closeButton.setBounds (head.removeFromRight (36));   // a 34 px target
     head.removeFromRight (8);
     title.setBounds (head);
     area.removeFromTop (8);

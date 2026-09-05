@@ -28,6 +28,8 @@ public:
     void selectFx (const juce::Uuid& id);
 
     std::function<void()> onClose;
+    /** The content's height changed (another FX with a longer chain, a mic added): the owner sizes the drawer again. */
+    std::function<void()> onPreferredHeightChanged;
     std::function<void (const juce::Uuid&)> onOpenChain;
     std::function<void (const juce::Uuid&)> onAddPlugin;
     /** The '+ 추가' button: the plugin menu opens next to it. */

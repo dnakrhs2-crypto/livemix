@@ -135,10 +135,10 @@ void TopBar::setMuteGroups (bool micMuted, bool fxMuted)
 
 TopBar::Mode TopBar::modeFor (int width) const noexcept
 {
-    // one row: the logo (130), the two buttons (242), status (up to 230), device (160+), ASIO (56) and a session name
-    // of at least 160 - about 1020; a mute badge takes another 100
-    const int badges = (micMuteBadge.isVisible() ? 1 : 0) + (fxMuteBadge.isVisible() ? 1 : 0);
-    return width >= 1020 + 100 * badges ? Mode::wide : width >= 700 ? Mode::compact : Mode::narrow;
+    // one row: the logo (130), the two buttons (242), status (up to 230), device (160+), ASIO (56), a session name of
+    // at least 160 and room kept for both mute badges (200) - about 1220. The badges never change the mode: a mute
+    // hotkey pressed mid-stream must not move the whole layout.
+    return width >= 1220 ? Mode::wide : width >= 700 ? Mode::compact : Mode::narrow;
 }
 
 int TopBar::preferredHeight (int width) const noexcept
@@ -191,7 +191,7 @@ void TopBar::resized()
 
     // the device / status part: the same row in the wide bar, its own row below
     auto& statusRow = mode == Mode::wide ? row1 : mode == Mode::compact ? row2 : row3;
-    const bool showCpu = mode == Mode::wide ? statusRow.getWidth() > 900 : mode == Mode::compact;
+    const bool showCpu = mode != Mode::narrow;   // the narrow bar's device row has no room for it
     dspMeter.setVisible (showCpu);
     dspLabel.setVisible (showCpu);
 
@@ -203,11 +203,15 @@ void TopBar::resized()
         statusRow.removeFromRight (10);
     }
 
+    // the mute badges: in the one-row bar next to the status (its width keeps their room); in the two- and three-row
+    // bars at the right end of the first row, where only the session name gives - the device box keeps its width
+    auto& badgeRow = mode == Mode::wide ? statusRow : row1;
+
     for (auto* badge : { &fxMuteBadge, &micMuteBadge })
         if (badge->isVisible())
         {
-            badge->setBounds (statusRow.removeFromRight (mode == Mode::narrow ? 76 : 92).reduced (0, 5));
-            statusRow.removeFromRight (8);
+            badge->setBounds (badgeRow.removeFromRight (mode == Mode::narrow ? 76 : 92).reduced (0, 5));
+            badgeRow.removeFromRight (8);
         }
 
     if (mode == Mode::wide)
