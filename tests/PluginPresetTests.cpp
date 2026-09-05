@@ -215,11 +215,11 @@ public:
         beginTest ("a saved plugin is found by its file, then its name, among known plugins sharing an id; two strangers with the id are refused");
         {
             PluginHost host;
-            auto desc = [] (const juce::String& name, const juce::String& file, int id)
+            auto desc = [] (const juce::String& pluginName, const juce::String& file, int id)
             {
                 juce::PluginDescription d;
                 d.pluginFormatName = "VST3";
-                d.name = name;
+                d.name = pluginName;
                 d.fileOrIdentifier = file;
                 d.uniqueId = id;
                 d.deprecatedUid = id;
