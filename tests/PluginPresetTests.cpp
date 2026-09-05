@@ -204,6 +204,10 @@ public:
             expect (PluginPreset::fromJson (head + "\"plugins\": [1, 2]}", q).failed());                                  // not objects
             expect (PluginPreset::fromJson (head + "\"plugins\": [{\"name\": \"EQ\", \"state\": \"@@@@\"}]}", q).failed());   // a state that cannot be decoded
             expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"version\": \"abc\", \"plugins\": []}", q).failed());   // a version that is not a number
+            expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"version\": 1.5, \"plugins\": []}", q).failed());       // not a whole number
+            expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"version\": 0, \"plugins\": []}", q).failed());         // under 1
+            expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"plugins\": []}", q).failed());                         // no version at all
+            expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"version\": 1.0, \"plugins\": []}", q).wasOk());        // 1.0 is 1
             expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"name\": \"x\"}", q).failed());   // no list at all
             expect (PluginPreset::fromJson (head + "\"plugins\": []}", q).wasOk());                                       // an empty list is a preset (an honest one)
         }

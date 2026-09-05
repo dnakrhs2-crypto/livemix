@@ -54,6 +54,7 @@ public:
     Content (MixEngine& e, LiveMixSettings& s) : engine (e), settings (s)
     {
         history.assign ((size_t) historyLength, nothing);
+        lastBlocks = engine.getLoudnessMeter().getStats().getSubBlockCount();   // the curve starts now: no invented past
 
         resetButton.setButtonText (ko ("초기화"));
         resetButton.setTooltip (ko ("통합 라우드니스, 범위, 최대값, 트루 피크를 지금부터 다시 잽니다"));
@@ -158,13 +159,16 @@ private:
 
         if (blocks != lastBlocks)
         {
-            // one point per sub-block that arrived, so a tick that came late keeps the time axis honest (100 ms a point)
+            // one point per sub-block that arrived, so a tick that came late keeps the time axis honest (100 ms a point);
+            // a tick's jitter (a sub-block or two) repeats the value, a real stall leaves a gap where nothing was seen
             const auto s = st.shortTerm();
             const auto arrived = (int) juce::jmin ((juce::int64) historyLength, blocks - lastBlocks);
+            const bool stalled = arrived > 3;
 
             for (int k = 0; k < arrived; ++k)
             {
-                history[(size_t) historyPos] = s.valid ? (float) s.value : nothing;
+                const bool last = k == arrived - 1;
+                history[(size_t) historyPos] = (s.valid && (last || ! stalled)) ? (float) s.value : nothing;
                 historyPos = (historyPos + 1) % historyLength;
             }
 
@@ -217,15 +221,16 @@ private:
     {
         g.setColour (Palette::dimText);
         g.setFont (bodyFont (12.5f));
-        juce::String note = ko ("측정 시간 ") + formatTimeMs (st.elapsedSeconds(), false);
-
-        if (! engine.isDeviceRunning())
-            note += "   " + ko ("오디오 멈춤 - 장치가 돌면 잽니다");
+        juce::StringArray parts;   // what matters first: a narrow window cuts the end
 
         if (meter.getDroppedSubBlocks() > 0)
-            note += "   " + ko ("(끊긴 구간 있음)");
+            parts.add (ko ("끊긴 구간 있음"));
 
-        g.drawText (note, noteArea, juce::Justification::centredLeft, true);
+        if (! engine.isDeviceRunning())
+            parts.add (ko ("오디오 멈춤 - 장치가 돌면 잽니다"));
+
+        parts.add (ko ("측정 시간 ") + formatTimeMs (st.elapsedSeconds(), false));
+        g.drawText (parts.joinIntoString ("   "), noteArea, juce::Justification::centredLeft, true);
     }
 
     /** A number with its unit at the right, the caption above: the value in a big bold font, the unit small and dim.

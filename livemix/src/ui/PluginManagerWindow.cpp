@@ -231,8 +231,19 @@ private:
     /** The available list shows the plugins the search matches (pluginMatchesSearch: name, maker, format; all of them when it is empty). */
     void applyFilter()
     {
+        const int selectedRow = availableList.getSelectedRow();
+        const auto selectedKey = selectedRow >= 0 && selectedRow < available.size() ? PluginHost::keyFor (available[selectedRow]) : juce::String();
         available = filterPlugins (allAvailable, searchEditor.getText());
         availableList.deselectAllRows();
+
+        if (selectedKey.isNotEmpty())   // the same plugin stays selected when it is still shown (a refresh from a scan or a switch)
+            for (int i = 0; i < available.size(); ++i)
+                if (PluginHost::keyFor (available[i]) == selectedKey)
+                {
+                    availableList.selectRow (i);
+                    break;
+                }
+
         availableList.updateContent();
         availableList.repaint();
     }

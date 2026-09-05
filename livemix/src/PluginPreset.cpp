@@ -4,6 +4,7 @@
 #include "model/SafeFileWrite.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace gocue::livemix
 {
@@ -40,12 +41,20 @@ juce::Result PluginPreset::fromJson (const juce::String& json, PluginPreset& out
     if (root.getProperty ("app", "").toString() != "LiveMix" || root.getProperty ("kind", "").toString() != "pluginPreset")
         return juce::Result::fail (k ("LiveMix 플러그인 프리셋 파일이 아닙니다"));
 
-    const auto versionVar = root.getProperty ("version", 1);
+    const auto versionVar = root.getProperty ("version", juce::var());
+
+    if (versionVar.isVoid())
+        return juce::Result::fail (k ("프리셋 파일에 버전 표시가 없습니다"));
 
     if (! (versionVar.isInt() || versionVar.isInt64() || versionVar.isDouble()))
         return juce::Result::fail (k ("프리셋 파일의 버전 표시가 잘못됐습니다"));
 
-    const int version = (int) versionVar;
+    const double versionNumber = (double) versionVar;
+
+    if (! std::isfinite (versionNumber) || versionNumber != std::floor (versionNumber) || versionNumber < 1.0 || versionNumber > 1.0e6)
+        return juce::Result::fail (k ("프리셋 파일의 버전 표시가 잘못됐습니다: ") + versionVar.toString());
+
+    const int version = (int) versionNumber;
 
     if (version > currentVersion)
         return juce::Result::fail (k ("더 새로운 LiveMix로 저장한 프리셋입니다 (파일 버전 ") + juce::String (version) + k ("). LiveMix를 업데이트하세요."));

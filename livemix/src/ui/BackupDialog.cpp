@@ -732,6 +732,10 @@ namespace
             // presets / sessions, and a preset made under that name meanwhile keeps it
             auto staging = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("LiveMix");
             staging.createDirectory();
+
+            for (const auto& leftover : staging.findChildFiles (juce::File::findFiles, false, "restore*"))
+                leftover.deleteFile();   // a restore cancelled, or the app quit, before its callback could tidy up (one restore runs at a time)
+
             const auto file = staging.getNonexistentChildFile ("restore", wanted.getFileExtension());
 
             const auto target = currentTarget();
