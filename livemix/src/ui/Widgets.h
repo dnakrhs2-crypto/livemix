@@ -42,11 +42,13 @@ class MeterBar : public juce::Component
 public:
     explicit MeterBar (bool stereoBars = false) : stereo (stereoBars) {}
 
-    void push (MixEngine::Meter m)
+    void push (MixEngine::Meter m, bool paint = true)
     {
         push (0, m.left);
         push (1, stereo ? m.right : m.left);
-        repaint();
+
+        if (paint)
+            repaint();   // an off-screen meter keeps its hold and decay moving without painting
     }
 
     void setStereo (bool shouldBeStereo) { stereo = shouldBeStereo; repaint(); }

@@ -217,9 +217,9 @@ void TopBar::resized()
     if (mode == Mode::wide)
     {
         asioLabel.setJustificationType (juce::Justification::centredRight);
-        statusLabel.setBounds (statusRow.removeFromRight (juce::jmin (230, statusRow.getWidth() / 3)));
+        statusLabel.setBounds (statusRow.removeFromRight (juce::jlimit (120, 230, statusRow.getWidth() / 4)));   // both give a little with two badges up: the session name keeps its 160
         statusRow.removeFromRight (8);
-        deviceCombo.setBounds (statusRow.removeFromRight (juce::jlimit (160, 260, statusRow.getWidth() / 3)));
+        deviceCombo.setBounds (statusRow.removeFromRight (juce::jlimit (120, 260, statusRow.getWidth() / 3)));
         statusRow.removeFromRight (6);
         asioLabel.setBounds (statusRow.removeFromRight (40));
         statusRow.removeFromRight (10);

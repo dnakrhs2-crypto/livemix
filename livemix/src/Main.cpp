@@ -339,20 +339,24 @@ public:
 
             const auto& displays = juce::Desktop::getInstance().getDisplays();
 
+            const auto frame = getPeer() != nullptr ? getPeer()->getFrameSize() : juce::BorderSize<int> (31, 8, 8, 8);   // the native title bar and borders sit outside the bounds
+
             if (! restoreWindowStateFromString (settings.getWindowState()))
             {
-                // the first window fits the screen it opens on (a portrait or a small monitor gets a smaller one)
+                // the first window fits the screen it opens on, frame included (a portrait or a small monitor gets a smaller one)
                 const auto screen = displays.getPrimaryDisplay() != nullptr ? displays.getPrimaryDisplay()->userBounds.toNearestInt() : juce::Rectangle<int> (0, 0, 1920, 1080);
-                centreWithSize (juce::jmin (1440, screen.getWidth() - 24), juce::jmin (900, screen.getHeight() - 24));
+                centreWithSize (juce::jmin (1440, screen.getWidth() - frame.getLeftAndRight() - 24), juce::jmin (900, screen.getHeight() - frame.getTopAndBottom() - 24));
             }
 
-            // whatever was restored stays inside the display it is on (a state saved on a bigger or a second monitor,
-            // or before a scale change, must not leave the title bar or the grip off screen)
+            // whatever was restored stays inside the display it is on, frame included (a state saved on a bigger or a
+            // second monitor, or before a scale change, must not leave the title bar or the grip off screen)
             if (! isFullScreen())
-                if (auto* display = displays.getDisplayForRect (getBounds()))
+                if (auto* display = displays.getDisplayForRect (frame.addedTo (getBounds())))
                 {
                     const auto screen = display->userBounds.toNearestInt();
-                    setBounds (getBounds().withSize (juce::jmin (getWidth(), screen.getWidth()), juce::jmin (getHeight(), screen.getHeight())).constrainedWithin (screen));
+                    auto framed = frame.addedTo (getBounds());
+                    framed = framed.withSize (juce::jmin (framed.getWidth(), screen.getWidth()), juce::jmin (framed.getHeight(), screen.getHeight())).constrainedWithin (screen);
+                    setBounds (frame.subtractedFrom (framed));
                 }
 
             setVisible (true);

@@ -303,7 +303,7 @@ void SettingsDialog::show (MixEngine& engine, LiveMixSettings& settings, juce::C
     auto* content = new SettingsContent (engine, settings, std::move (onDeviceChanged), std::move (onHotkeysChanged), std::move (onHotkeyCapture));
     auto* scroller = new juce::Viewport();
     scroller->setViewedComponent (content, true);
-    scroller->setScrollBarsShown (true, false);
+    scroller->setScrollBarsShown (true, true);   // sideways only when a narrow display squeezed the window under the content's width
     scroller->setSize (content->getWidth() + scroller->getScrollBarThickness(), content->getHeight());
 
     auto* window = new SettingsWindow();

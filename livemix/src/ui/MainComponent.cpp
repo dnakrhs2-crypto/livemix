@@ -225,8 +225,8 @@ void MainComponent::refreshValues()
 
     masterCard.refresh();
 
-    if (masterCard.getHeight() != masterCard.getPreferredHeight (masterCard.getWidth()))
-        resized();   // more or fewer chip rows: the master's height, and the room above it
+    if (masterCard.getUnfoldedHeight (masterCard.getWidth()) != masterUnfoldedH)
+        resized();   // more or fewer chip rows: the master's height (folded or not), and the room above it
 
     fxDrawer.refresh();
     layoutFxDrawer();
@@ -341,9 +341,10 @@ void MainComponent::resized()
     // the master takes its full form only while the mics keep a card's worth of room; otherwise it folds to a strip
     const int cardWidth = area.getWidth() - 32;
     masterCard.setStrip (false);
-    int masterH = masterCard.getPreferredHeight (cardWidth);   // grows with its chip rows
+    masterUnfoldedH = masterCard.getPreferredHeight (cardWidth);   // grows with its chip rows
+    int masterH = masterUnfoldedH;
 
-    if (area.getHeight() - (masterH + 16) < minCardsRoom)
+    if (area.getHeight() - (masterH + 16) - 24 < minCardsRoom)   // 24: the viewport's margins below
     {
         masterCard.setStrip (true);
         masterH = masterCard.getPreferredHeight (cardWidth);
@@ -575,11 +576,10 @@ void MainComponent::deviceChosen()
 //==============================================================================
 void MainComponent::timerCallback()
 {
-    const auto inView = viewport.getViewArea();   // a tall window scrolls: only the cards on screen repaint their meters
+    const auto inView = viewport.getViewArea();   // a tall window scrolls: every meter is read and advances, only the cards on screen repaint
 
     for (auto& card : cards)
-        if (card->getBounds().intersects (inView))
-            card->pushMeter (engine.readChannelMeter (card->getChannelId()));
+        card->pushMeter (engine.readChannelMeter (card->getChannelId()), card->getBounds().intersects (inView));
 
     for (const auto& f : document.getSession().fx)
     {

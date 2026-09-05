@@ -111,13 +111,15 @@ void MasterCard::rebuildChain()
 
 int MasterCard::getPreferredHeight (int width) const
 {
-    if (strip)
-        return stripHeight;
+    return strip ? stripHeight : getUnfoldedHeight (width);
+}
 
+int MasterCard::getUnfoldedHeight (int width) const
+{
     if (width < narrowBelow)
     {
-        // the compact stack: the head row (with the output pair), the chain row and its chips, the meter's caption row, the meter
-        const int rows = ChipFlow::layout (chips, juce::Rectangle<int> (0, 0, juce::jmax (1, width - 28), 1), 30, false);
+        // the compact stack: the head row (with the output pair), the chain row and its chips (none: no row), the meter's caption row, the meter
+        const int rows = chips.empty() ? 0 : ChipFlow::layout (chips, juce::Rectangle<int> (0, 0, juce::jmax (1, width - 28), 1), 30, false);
         return 24 + 34 + 8 + 30 + (rows > 0 ? 6 + rows * ChipFlow::rowStep : 0) + 10 + 18 + 46;
     }
 

@@ -309,12 +309,16 @@ int FxDrawer::layout (int width, bool apply)
     place (addFxButton, tabRow.removeFromRight (90));
     tabRow.removeFromRight (6);
 
-    for (size_t i = 0; i < tabs.size(); ++i)
+    if (! tabs.empty())
     {
-        const int left = (int) tabs.size() - (int) i;   // the tabs still to place share the width still there
-        const int w = juce::jmin (150, juce::jmax (44, (tabRow.getWidth() - 6 * (left - 1)) / left));
-        place (*tabs[i], tabRow.removeFromLeft (w));
-        tabRow.removeFromLeft (6);
+        const int n = (int) tabs.size();
+        const int w = juce::jmin (150, juce::jmax (40, (tabRow.getWidth() - 6 * (n - 1)) / n));   // equal widths from the row's whole width
+
+        for (auto& tab : tabs)
+        {
+            place (*tab, tabRow.removeFromLeft (w));
+            tabRow.removeFromLeft (6);
+        }
     }
 
     area.removeFromTop (12);

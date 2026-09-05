@@ -449,17 +449,26 @@ public:
         presetsCaption.setBounds (presetsArea.removeFromTop (22));
         presetsNote.setBounds (presetsArea.removeFromTop (34));
         presetsArea.removeFromTop (6);
+        const bool twoRows = presetsArea.getWidth() < 720;   // a narrow window: the file actions on a row of their own
         auto presetButtons = presetsArea.removeFromBottom (32);
         newPresetButton.setBounds (presetButtons.removeFromLeft (150));
         presetButtons.removeFromLeft (8);
         renamePresetButton.setBounds (presetButtons.removeFromLeft (110));
         presetButtons.removeFromLeft (8);
         deletePresetButton.setBounds (presetButtons.removeFromLeft (64));
-        openFolderButton.setBounds (presetButtons.removeFromRight (90));
-        presetButtons.removeFromRight (8);
-        importPresetButton.setBounds (presetButtons.removeFromRight (140));
-        presetButtons.removeFromRight (8);
-        exportPresetButton.setBounds (presetButtons.removeFromRight (110));
+        auto fileRow = presetButtons;
+
+        if (twoRows)
+        {
+            presetsArea.removeFromBottom (6);
+            fileRow = presetsArea.removeFromBottom (32);
+        }
+
+        openFolderButton.setBounds (fileRow.removeFromRight (90));
+        fileRow.removeFromRight (8);
+        importPresetButton.setBounds (fileRow.removeFromRight (140));
+        fileRow.removeFromRight (8);
+        exportPresetButton.setBounds (fileRow.removeFromRight (110));
         presetsArea.removeFromBottom (8);
         presetTable.setBounds (presetsArea);
     }

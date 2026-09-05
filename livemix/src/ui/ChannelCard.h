@@ -32,7 +32,7 @@ public:
     /** The height this card wants for the layout. */
     /** The height the card needs at 'width' in its current layout (the chip rows depend on the width). */
     int getPreferredHeight (int width) const;
-    void pushMeter (MixEngine::Meter meter) { meter_.push (meter); }
+    void pushMeter (MixEngine::Meter meter, bool paint = true) { meter_.push (meter, paint); }
     /** The mic mute group's state: a member shows itself muted while it is on. */
     void setGroupMuted (bool muted);
 
