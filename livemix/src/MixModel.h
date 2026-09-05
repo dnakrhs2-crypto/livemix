@@ -78,7 +78,7 @@ struct MixDevice
 /** The session file (.livemix): everything the app needs to come back exactly as it was. */
 struct MixSession
 {
-    static constexpr int currentVersion = 1;
+    static constexpr int currentVersion = 2;   // 2 (0.5.0): pluginGroups and the slots' ids - a 0.4 LiveMix refuses the file rather than losing them on save
     static constexpr int maxChannels = 8;
     static constexpr int maxFx = 4;
     static constexpr int maxDeviceChannels = 64;

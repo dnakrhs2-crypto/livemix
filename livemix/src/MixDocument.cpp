@@ -309,7 +309,8 @@ void MixDocument::removePluginGroup (const juce::Uuid& channelId, int group)
 
     if (c->pluginGroups[(size_t) group].off)
         for (const auto& slotId : c->pluginGroups[(size_t) group].slots)
-            bypassSlot (channelId, slotId, false);   // a group that was off does not leave its plugins off behind it
+            if (! heldOffElsewhere (*c, slotId, group))
+                bypassSlot (channelId, slotId, false);   // a group that was off does not leave its plugins off behind it (unless another OFF group holds them)
 
     c->pluginGroups.erase (c->pluginGroups.begin() + group);
     valueChanged();
@@ -327,6 +328,9 @@ void MixDocument::setPluginGroupMember (const juce::Uuid& channelId, int group, 
 
     if (member && it == g.slots.end())
     {
+        if (! liveChainHas (channelId, slotId))
+            return;   // a row of a plugin removed meanwhile (the window's list follows a little later): not a member
+
         g.slots.push_back (slotId);
 
         if (g.off)
@@ -336,7 +340,7 @@ void MixDocument::setPluginGroupMember (const juce::Uuid& channelId, int group, 
     {
         g.slots.erase (it);
 
-        if (g.off)
+        if (g.off && ! heldOffElsewhere (*c, slotId, group))
             bypassSlot (channelId, slotId, false);
     }
     else
@@ -358,9 +362,37 @@ void MixDocument::setPluginGroupOff (const juce::Uuid& channelId, int group, boo
     g.off = off;
 
     for (const auto& slotId : g.slots)
-        bypassSlot (channelId, slotId, off);
+        if (off || ! heldOffElsewhere (*c, slotId, group))
+            bypassSlot (channelId, slotId, off);   // a plugin in another OFF group stays off when this one is switched on
 
     valueChanged();
+}
+
+bool MixDocument::heldOffElsewhere (const MixChannel& channel, const juce::Uuid& slotId, int exceptGroup)
+{
+    for (size_t i = 0; i < channel.pluginGroups.size(); ++i)
+    {
+        const auto& other = channel.pluginGroups[i];
+
+        if ((int) i != exceptGroup && other.off && std::find (other.slots.begin(), other.slots.end(), slotId) != other.slots.end())
+            return true;
+    }
+
+    return false;
+}
+
+bool MixDocument::liveChainHas (const juce::Uuid& channelId, const juce::Uuid& slotId) const
+{
+    const auto* chain = engine.getChannelChain (channelId);
+
+    if (chain == nullptr)
+        return false;
+
+    for (int i = 0; i < chain->getNumSlots(); ++i)
+        if (chain->getSlot (i).state.slotId == slotId)
+            return true;
+
+    return false;
 }
 
 void MixDocument::bypassSlot (const juce::Uuid& channelId, const juce::Uuid& slotId, bool bypass)

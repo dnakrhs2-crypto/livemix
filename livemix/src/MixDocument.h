@@ -81,6 +81,9 @@ public:
 
 private:
     void bypassSlot (const juce::Uuid& channelId, const juce::Uuid& slotId, bool bypass);   // the live chain's slot with that id (none: nothing)
+    /** Another OFF group of the channel (not 'exceptGroup') holds the slot: switching one group on must not run it. */
+    static bool heldOffElsewhere (const MixChannel& channel, const juce::Uuid& slotId, int exceptGroup);
+    bool liveChainHas (const juce::Uuid& channelId, const juce::Uuid& slotId) const;
     void structureChanged();   // an edit: dirty, then announced
     void valueChanged();
     void notifyStructure();    // announced only (a load / a new session are clean)

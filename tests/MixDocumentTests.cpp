@@ -116,7 +116,24 @@ public:
             doc.setPluginGroupOff (channelId, 0, true);
             expect (! chain->getSlot (0).bypassed.load());
 
-            for (int i = 1; i < MixSession::maxPluginGroups; ++i)
+            // a plugin in two OFF groups runs only when both are on; a slot the chain does not have is not a member
+            expectEquals (doc.addPluginGroup (channelId), 1);
+            const auto remaining = chain->getSlot (0).state.slotId;
+            doc.setPluginGroupMember (channelId, 0, remaining, true);
+            doc.setPluginGroupMember (channelId, 1, remaining, true);
+            doc.setPluginGroupMember (channelId, 1, juce::Uuid(), true);   // a stranger
+            expectEquals ((int) doc.getSession().channels[0].pluginGroups[1].slots.size(), 1);
+            doc.setPluginGroupOff (channelId, 0, true);
+            doc.setPluginGroupOff (channelId, 1, true);
+            expect (chain->getSlot (0).bypassed.load());
+            doc.setPluginGroupOff (channelId, 0, false);
+            expect (chain->getSlot (0).bypassed.load());      // group 1 still holds it off
+            doc.setPluginGroupMember (channelId, 1, remaining, false);   // leaving the OFF group: on, group 0 is on too
+            expect (! chain->getSlot (0).bypassed.load());
+            doc.setPluginGroupOff (channelId, 1, false);
+            doc.setPluginGroupOff (channelId, 0, true);   // off again: the file check below wants an OFF group with its member
+
+            for (int i = 2; i < MixSession::maxPluginGroups; ++i)
                 expectEquals (doc.addPluginGroup (channelId), i);
 
             expectEquals (doc.addPluginGroup (channelId), -1);
@@ -130,7 +147,8 @@ public:
             expectEquals ((int) back.channels[0].pluginGroups.size(), MixSession::maxPluginGroups);
             expect (back.channels[0].chain[0].slotId == chain->getSlot (0).state.slotId);
             expect (back.channels[0].pluginGroups[0].off);
-            expectEquals ((int) back.channels[0].pluginGroups[0].slots.size(), 0);   // the removed member is not in the file
+            expectEquals ((int) back.channels[0].pluginGroups[0].slots.size(), 1);   // the removed member is not in the file, the remaining one is
+            expect (copy.toJson().contains ("\"version\": 2"));   // the format of 0.5.0: a 0.4 LiveMix refuses it instead of losing the groups
         }
 
         beginTest ("a plugin's own state change is picked up on demand and settled by a save");

@@ -255,8 +255,7 @@ private:
         for (const auto& g : c->pluginGroups)
             groups.push_back ({ (int) g.slots.size(), g.off });
 
-        if (selectedGroup >= (int) groups.size())
-            selectedGroup = (int) groups.size() - 1;
+        const int wanted = juce::jmin (selectedGroup, (int) groups.size() - 1);   // updateContent() below may report the old row gone (selectedRowsChanged (-1)): the row meant is put back after it
 
         slots.clear();
 
@@ -268,10 +267,11 @@ private:
             }
 
         groupsList.updateContent();
+        selectedGroup = wanted;
 
-        if (selectedGroup >= 0 && groupsList.getSelectedRow() != selectedGroup)
+        if (selectedGroup >= 0)
             groupsList.selectRow (selectedGroup, false, true);
-        else if (selectedGroup < 0)
+        else
             groupsList.deselectAllRows();
 
         groupsList.repaint();
