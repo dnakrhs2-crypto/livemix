@@ -40,7 +40,12 @@ juce::Result PluginPreset::fromJson (const juce::String& json, PluginPreset& out
     if (root.getProperty ("app", "").toString() != "LiveMix" || root.getProperty ("kind", "").toString() != "pluginPreset")
         return juce::Result::fail (k ("LiveMix 플러그인 프리셋 파일이 아닙니다"));
 
-    const int version = (int) root.getProperty ("version", 1);
+    const auto versionVar = root.getProperty ("version", 1);
+
+    if (! (versionVar.isInt() || versionVar.isInt64() || versionVar.isDouble()))
+        return juce::Result::fail (k ("프리셋 파일의 버전 표시가 잘못됐습니다"));
+
+    const int version = (int) versionVar;
 
     if (version > currentVersion)
         return juce::Result::fail (k ("더 새로운 LiveMix로 저장한 프리셋입니다 (파일 버전 ") + juce::String (version) + k ("). LiveMix를 업데이트하세요."));
@@ -48,9 +53,33 @@ juce::Result PluginPreset::fromJson (const juce::String& json, PluginPreset& out
     if (ProjectSerializer::hasTrailingJsonData (json))
         return juce::Result::fail (k ("프리셋 파일 뒤에 알 수 없는 내용이 붙어 있습니다"));
 
+    // the plugin list: an array of objects, each with a decodable state - a wrong shape is refused, not quietly
+    // shortened to a preset that loads as something else than what was saved
+    const auto pluginsVar = root.getProperty ("plugins", juce::var());
+    const auto* pluginsArray = pluginsVar.getArray();
+
+    if (pluginsArray == nullptr)
+        return juce::Result::fail (k ("프리셋 파일에 플러그인 목록이 없습니다"));
+
+    for (const auto& item : *pluginsArray)
+    {
+        if (item.getDynamicObject() == nullptr)
+            return juce::Result::fail (k ("프리셋 파일의 플러그인 항목이 잘못됐습니다"));
+
+        const auto state = item.getProperty ("state", "").toString();
+
+        if (state.isNotEmpty())
+        {
+            juce::MemoryOutputStream decoded;
+
+            if (! juce::Base64::convertFromBase64 (decoded, state))
+                return juce::Result::fail (k ("프리셋 파일의 플러그인 설정 데이터를 읽을 수 없습니다: ") + item.getProperty ("name", "").toString());
+        }
+    }
+
     PluginPreset p;
     p.name = root.getProperty ("name", "").toString().trim();
-    p.plugins = ProjectSerializer::pluginSlotsFromVar (root.getProperty ("plugins", juce::var()));
+    p.plugins = ProjectSerializer::pluginSlotsFromVar (pluginsVar);
 
     if ((int) p.plugins.size() > maxPlugins)
         p.plugins.resize ((size_t) maxPlugins);

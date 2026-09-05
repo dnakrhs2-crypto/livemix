@@ -387,6 +387,14 @@ void ChainDrawer::saveChainAsPreset()
         bool complete = true;
         preset.plugins = safeThis->chain->getStates (&complete);
 
+        if (! complete)
+        {
+            // a preset with a plugin's stale or empty settings would load later as if they were meant: not saved
+            juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, ko ("프리셋을 저장하지 않았습니다"),
+                                                    ko ("일부 플러그인의 설정을 읽지 못했습니다. 그 플러그인의 창을 닫거나 세션을 다시 연 뒤 다시 저장하세요."), ko ("확인"));
+            return;
+        }
+
         for (auto& p : preset.plugins)
             p.bypassed = false;   // a preset carries the plugins and their settings, not a momentary bypass
 

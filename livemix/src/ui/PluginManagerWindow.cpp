@@ -181,6 +181,13 @@ public:
 
     void paint (juce::Graphics& g) override { g.fillAll (Palette::card); }
 
+    /** The plugins offered changed (a scan, the VST2 switch, a '사용' switch): the list follows, the chain being built stays. */
+    void setTypes (juce::Array<juce::PluginDescription> types)
+    {
+        allAvailable = std::move (types);
+        applyFilter();
+    }
+
 private:
     struct Model : public juce::ListBoxModel
     {
@@ -500,9 +507,23 @@ public:
 
     void refreshPresets()
     {
+        // the selection stays on the same preset (by file), never on the row number: a restore or an import can put
+        // a new name before it, and rename / delete act on what is selected
+        const auto* selected = selectedPreset();
+        const auto selectedFile = selected != nullptr ? selected->file : juce::File();
         juce::StringArray problems;
         presets = PluginPreset::listFolder (presetsFolder, &problems);
         presetTable.updateContent();
+        presetTable.deselectAllRows();
+
+        if (selectedFile != juce::File())
+            for (size_t i = 0; i < presets.size(); ++i)
+                if (presets[i].file == selectedFile)
+                {
+                    presetTable.selectRow ((int) i);
+                    break;
+                }
+
         presetTable.repaint();
         presetButtonsEnabled();
 
@@ -576,6 +597,7 @@ private:
                 owner.host.setPluginEnabled (d, owner.host.isPluginSwitchedOff (d));   // its own switch, whatever its format's switch says
                 owner.settings.setDisabledPlugins (owner.host.getDisabledPlugins());
                 owner.pluginTable.repaint();
+                owner.refreshBuilder();
             }
         }
 
@@ -629,6 +651,15 @@ private:
         allTypes = host.getAllEffectTypes();
         scanVst2Button.setEnabled (PluginHost::hasVst2Support());   // never a dead button: it switches VST2 on itself
         applyPluginSearch();
+        refreshBuilder();
+    }
+
+    /** An open builder offers what the menus offer now (a scan, the VST2 switch, a '사용' switch changed it). */
+    void refreshBuilder()
+    {
+        if (builderWindow != nullptr)
+            if (auto* builder = dynamic_cast<PresetBuilder*> (builderWindow->getContentComponent()))
+                builder->setTypes (host.getEffectTypes());
     }
 
     /** The table shows the plugins the search box matches. The selection stays on the same plugin when it is still
@@ -734,6 +765,7 @@ private:
 
         settings.setDisabledPlugins (host.getDisabledPlugins());
         pluginTable.repaint();
+        refreshBuilder();
 
         if (types.size() != allTypes.size())
             setStatus (ko ("검색 결과 ") + juce::String (types.size()) + ko ("개를 '사용'으로 켰습니다 (검색을 지우면 전부 보입니다)"), false);
@@ -777,6 +809,18 @@ private:
             {
                 if (safe == nullptr)
                     return juce::Result::fail (ko ("플러그인 관리 창이 닫혔습니다"));
+
+                // what is saved is checked again now: a plugin switched off (or its format) since it was picked
+                for (const auto& slot : preset.plugins)
+                {
+                    juce::PluginDescription d;
+                    d.pluginFormatName = slot.format;
+                    d.name = slot.name;
+                    d.uniqueId = slot.uniqueId;
+
+                    if (! safe->host.isPluginEnabled (d))
+                        return juce::Result::fail (ko ("이제 쓸 수 없는 플러그인이 들어 있습니다 ('사용'이 꺼졌거나 그 형식이 꺼짐): ") + slot.name);
+                }
 
                 const auto file = PluginPreset::fileFor (preset.name, safe->presetsFolder);
 
@@ -917,12 +961,33 @@ private:
                 return;
 
             auto target = fc.getResult();
+            const bool extensionAdded = ! PluginPreset::isPresetFileName (target.getFileName());
 
-            if (! PluginPreset::isPresetFileName (target.getFileName()))
+            if (extensionAdded)
+            {
+                // the chooser checked "Vocal.txt" for an overwrite, not "Vocal.livemixpreset": that one is checked here
                 target = target.withFileExtension (PluginPreset::fileExtension);
 
-            safe->setStatus (source.copyFileTo (target) ? ko ("파일로 저장했습니다: ") + target.getFullPathName()
-                                                        : ko ("파일로 저장하지 못했습니다: ") + target.getFullPathName(), ! target.existsAsFile());
+                if (target.existsAsFile())
+                {
+                    safe->setStatus (ko ("같은 이름의 파일이 이미 있습니다 (확장자를 붙인 이름): ") + target.getFullPathName(), true);
+                    return;
+                }
+            }
+
+            // read back and written whole (a verified, atomic write): a failed copy leaves the old file, and the
+            // preset's own file as the target is not deleted from under itself
+            PluginPreset p;
+
+            if (const auto loaded = PluginPreset::load (source, p); loaded.failed())
+            {
+                safe->setStatus (loaded.getErrorMessage(), true);
+                return;
+            }
+
+            const auto saved = p.save (target);
+            safe->setStatus (saved.wasOk() ? ko ("파일로 저장했습니다: ") + target.getFullPathName()
+                                           : ko ("파일로 저장하지 못했습니다: ") + saved.getErrorMessage(), saved.failed());
         });
     }
 

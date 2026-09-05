@@ -184,4 +184,78 @@ public:
 
 static PluginHostFilterTests pluginHostFilterTests;
 
+/** The preset fixes of 0.4.0: a preset file's shape is checked; a saved plugin is resolved by its file, then its name,
+    among the known plugins sharing its id. */
+class PluginPresetFixesTests : public juce::UnitTest
+{
+public:
+    PluginPresetFixesTests() : juce::UnitTest ("LiveMix preset file shape and plugin resolution", "LiveMix") {}
+
+    void runTest() override
+    {
+        beginTest ("a preset file's shape: the plugin list an array of objects, the version a number, the state Base64");
+        {
+            PluginPreset q;
+            const juce::String head = "{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"version\": 1, \"name\": \"x\", ";
+            expect (PluginPreset::fromJson (head + "\"plugins\": [{\"format\": \"VST3\", \"name\": \"EQ\", \"fileOrIdentifier\": \"C:\\eq.vst3\", \"uniqueId\": 1, \"state\": \"AAECAw==\"}]}", q).wasOk());
+            expectEquals ((int) q.plugins.size(), 1);
+            expectEquals (q.plugins[0].stateBase64, juce::String ("AAECAw=="));
+            expect (PluginPreset::fromJson (head + "\"plugins\": \"EQ\"}", q).failed());                                   // not a list
+            expect (PluginPreset::fromJson (head + "\"plugins\": [1, 2]}", q).failed());                                  // not objects
+            expect (PluginPreset::fromJson (head + "\"plugins\": [{\"name\": \"EQ\", \"state\": \"@@@@\"}]}", q).failed());   // a state that cannot be decoded
+            expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"version\": \"abc\", \"plugins\": []}", q).failed());   // a version that is not a number
+            expect (PluginPreset::fromJson ("{\"app\": \"LiveMix\", \"kind\": \"pluginPreset\", \"name\": \"x\"}", q).failed());   // no list at all
+            expect (PluginPreset::fromJson (head + "\"plugins\": []}", q).wasOk());                                       // an empty list is a preset (an honest one)
+        }
+
+        beginTest ("a saved plugin is found by its file, then its name, among known plugins sharing an id; two strangers with the id are refused");
+        {
+            PluginHost host;
+            auto desc = [] (const juce::String& name, const juce::String& file, int id)
+            {
+                juce::PluginDescription d;
+                d.pluginFormatName = "VST3";
+                d.name = name;
+                d.fileOrIdentifier = file;
+                d.uniqueId = id;
+                d.deprecatedUid = id;
+                d.manufacturerName = "Test";
+                return d;
+            };
+            host.getKnownPlugins().addType (desc ("Alpha", "C:\\\\plugins\\\\alpha.vst3", 77));
+            host.getKnownPlugins().addType (desc ("Beta", "C:\\\\plugins\\\\beta.vst3", 77));   // the same id, another file: the list allows it
+
+            PluginSlotState s;
+            s.format = "VST3";
+            s.uniqueId = 77;
+            juce::String error;
+
+            s.name = "Beta";
+            s.fileOrIdentifier = "C:\\\\plugins\\\\beta.vst3";
+            expect (host.createInstance (s, 48000.0, 256, error) == nullptr);   // the file is not really there: the error names the one chosen
+            expect (error.contains ("beta.vst3") && ! error.containsIgnoreCase ("alpha"), "resolved by file: " + error);
+
+            s.fileOrIdentifier = "D:\\\\moved\\\\beta.vst3";   // moved: by name
+            error.clear();
+            expect (host.createInstance (s, 48000.0, 256, error) == nullptr);
+            expect (error.contains ("C:\\\\plugins\\\\beta.vst3"), "resolved by name: " + error);
+
+            s.name = "Gamma";
+            s.fileOrIdentifier = "D:\\\\moved\\\\gamma.vst3";   // neither the file nor the name is known and two share the id: refused, not the first one
+            error.clear();
+            expect (host.createInstance (s, 48000.0, 256, error) == nullptr);
+            expect (error.contains (juce::String::fromUTF8 ("여러 개")), "ambiguous: " + error);
+
+            PluginHost one;
+            one.getKnownPlugins().addType (desc ("Alpha", "C:\\\\plugins\\\\alpha.vst3", 78));
+            s.uniqueId = 78;   // the one plugin with the id: taken (it moved and was renamed)
+            error.clear();
+            expect (one.createInstance (s, 48000.0, 256, error) == nullptr);
+            expect (error.contains ("alpha.vst3"), "the single id match: " + error);
+        }
+    }
+};
+
+static PluginPresetFixesTests pluginPresetFixesTests;
+
 } // namespace gocue::tests

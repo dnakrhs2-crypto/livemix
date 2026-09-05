@@ -179,13 +179,39 @@ std::unique_ptr<juce::AudioPluginInstance> PluginHost::createInstance (const Plu
 
     if (description.uniqueId != 0)
     {
-        for (const auto& known : knownPlugins.getTypes())
+        // the known list wins (a plugin may have moved) - but by the saved file, or the saved name, before a bare id:
+        // two plugins of one format may share an id (the list allows it when their files differ), and the first one
+        // scanned must not quietly take a state saved for the other
+        const auto known = knownPlugins.getTypes();
+        const juce::PluginDescription* byFile = nullptr;
+        const juce::PluginDescription* byName = nullptr;
+        const juce::PluginDescription* byId = nullptr;
+        int idMatches = 0;
+
+        for (const auto& k : known)
         {
-            if (known.uniqueId == description.uniqueId && known.pluginFormatName == description.pluginFormatName)
-            {
-                description = known;
-                break;
-            }
+            if (k.uniqueId != description.uniqueId || k.pluginFormatName != description.pluginFormatName)
+                continue;
+
+            ++idMatches;
+            byId = &k;
+
+            if (byFile == nullptr && k.fileOrIdentifier.isNotEmpty() && k.fileOrIdentifier.equalsIgnoreCase (description.fileOrIdentifier))
+                byFile = &k;
+            else if (byName == nullptr && k.name.isNotEmpty() && k.name == description.name)
+                byName = &k;
+        }
+
+        if (byFile != nullptr)
+            description = *byFile;
+        else if (byName != nullptr)
+            description = *byName;
+        else if (idMatches == 1)
+            description = *byId;   // the one plugin with this id: it moved and was renamed
+        else if (idMatches > 1)
+        {
+            error = juce::String::fromUTF8 ("같은 ID의 플러그인이 여러 개라 어느 것인지 알 수 없습니다 (저장된 파일과 이름이 목록에 없음): ") + description.name;
+            return nullptr;
         }
     }
 

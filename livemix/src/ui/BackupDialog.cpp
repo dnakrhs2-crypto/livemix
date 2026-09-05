@@ -726,10 +726,13 @@ namespace
             const auto ownerPrefix = everyoneMode && entry.owner != idEditor.getText().trim() ? entry.owner + "_" : juce::String();
             const auto localName = preset ? PluginPreset::fileNameFor (ownerPrefix + WebDavBackup::presetNameFromFileName (entry.name))
                                           : ownerPrefix + entry.name;
-            auto file = folder.getChildFile (WebDavBackup::sanitiseName (localName));
+            const auto wanted = folder.getChildFile (WebDavBackup::sanitiseName (localName));   // the name it gets - chosen again once it has arrived
 
-            if (file.existsAsFile())
-                file = file.getNonexistentSibling();   // an earlier restore of the same backup keeps its file
+            // the download lands in a staging file outside the folder: nothing half-written or unread sits among the
+            // presets / sessions, and a preset made under that name meanwhile keeps it
+            auto staging = juce::File::getSpecialLocation (juce::File::tempDirectory).getChildFile ("LiveMix");
+            staging.createDirectory();
+            const auto file = staging.getNonexistentChildFile ("restore", wanted.getFileExtension());
 
             const auto target = currentTarget();
             juce::Component::SafePointer<BackupContent> safe (this);
@@ -739,7 +742,7 @@ namespace
             auto presetRestored = callbacks.presetRestored;
             auto* prefs = &settings;
             const bool keep = remember.getToggleState();
-            const auto started = backup.startDownload (target, entry.path, file, [safe, mine, target, file, status, restore, presetRestored, preset, prefs, keep] (bool ok, const juce::String& message)
+            const auto started = backup.startDownload (target, entry.path, file, [safe, mine, target, file, wanted, status, restore, presetRestored, preset, prefs, keep] (bool ok, const juce::String& message)
             {
                 auto report = [&] (const juce::String& text, bool error)
                 {
@@ -755,34 +758,40 @@ namespace
 
                 if (! ok)
                 {
+                    file.deleteFile();
                     report (message, true);
                     return;
                 }
 
                 persistAccount (*prefs, target, keep);
 
+                // its name in the folder, now that it is here: a file made under that name meanwhile keeps it
+                auto destination = wanted;
+
+                if (destination.existsAsFile())
+                    destination = destination.getNonexistentSibling();
+
                 if (preset)
                 {
-                    // a plugin preset: into the presets folder, the window stays for more
+                    // a plugin preset: read in the staging file, then written whole into the presets folder; the window stays for more
                     PluginPreset probe;
 
                     if (const auto check = PluginPreset::load (file, probe); check.failed())
                     {
+                        file.deleteFile();
                         report (juce::String::fromUTF8 ("내려받은 파일을 프리셋으로 읽을 수 없습니다: ") + check.getErrorMessage()
-                                    + juce::String::fromUTF8 (" (파일은 남겨 두었습니다: ") + file.getFullPathName() + ")", true);
+                                    + juce::String::fromUTF8 (" (프리셋 폴더에는 넣지 않았습니다)"), true);
                         return;
                     }
 
-                    // the preset goes by its file name here (an owner prefix, a "(2)"): the name inside follows, as an import does
-                    if (const auto fileName = file.getFileNameWithoutExtension(); probe.name != fileName)
-                    {
-                        probe.name = fileName;
+                    probe.name = destination.getFileNameWithoutExtension();   // the preset goes by its file name here (an owner prefix, a "(2)"), as an import does
+                    const auto saved = probe.save (destination);
+                    file.deleteFile();
 
-                        if (const auto renamed = probe.save (file); renamed.failed())
-                        {
-                            report (juce::String::fromUTF8 ("내려받은 프리셋의 이름을 파일 이름에 맞추지 못했습니다: ") + renamed.getErrorMessage(), true);
-                            return;
-                        }
+                    if (saved.failed())
+                    {
+                        report (juce::String::fromUTF8 ("내려받은 프리셋을 프리셋 폴더에 쓰지 못했습니다: ") + saved.getErrorMessage(), true);
+                        return;
                     }
 
                     report (juce::String::fromUTF8 ("프리셋 불러옴: ") + probe.name + juce::String::fromUTF8 (" (플러그인 관리 창과 '+ 추가 > 프리셋 불러오기'에 보입니다)"), false);
@@ -799,16 +808,24 @@ namespace
 
                 if (const auto check = MixSession::load (file, probe, &warnings); check.failed())
                 {
-                    // kept: the copy on the server is all there is of it, and a newer LiveMix may open it
+                    // kept where it landed: the copy on the server is all there is of it, and a newer LiveMix may open it
                     report (juce::String::fromUTF8 ("내려받은 파일을 세션으로 열 수 없습니다: ") + check.getErrorMessage()
                                 + juce::String::fromUTF8 (" (파일은 남겨 두었습니다: ") + file.getFullPathName() + ")", true);
                     return;
                 }
 
-                report (message, false);
+                if (! file.moveFileTo (destination))
+                {
+                    report (juce::String::fromUTF8 ("내려받은 세션을 세션 폴더로 옮기지 못했습니다: ") + destination.getFullPathName()
+                                + juce::String::fromUTF8 (" (내려받은 파일: ") + file.getFullPathName() + ")", true);
+                    return;
+                }
+
+                juce::ignoreUnused (message);
+                report (juce::String::fromUTF8 ("불러옴: ") + destination.getFileName(), false);
 
                 if (restore)
-                    restore (file);   // the session opens (after the usual unsaved-changes question)
+                    restore (destination);   // the session opens (after the usual unsaved-changes question)
 
                 juce::MessageManager::callAsync ([mine]
                 {
