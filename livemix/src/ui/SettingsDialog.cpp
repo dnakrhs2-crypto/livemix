@@ -63,7 +63,8 @@ namespace
             };
 
             toggle (minimiseToTray, ko ("최소화하면 트레이로 (창은 사라지고 소리는 계속)"), settings.getMinimiseToTray(), [this] (bool on) { settings.setMinimiseToTray (on); });
-            toggle (closeToTray, ko ("닫기 버튼도 트레이로 (종료는 트레이 메뉴에서)"), settings.getCloseToTray(), [this] (bool on) { settings.setCloseToTray (on); });
+            toggle (closeAsk, ko ("닫을 때 물어보기 (종료할지 트레이로 갈지)"), settings.getCloseAsk(), [this] (bool on) { settings.setCloseAsk (on); });
+            toggle (closeToTray, ko ("물어보지 않을 때: 트레이로 (끄면 종료)"), settings.getCloseToTray(), [this] (bool on) { settings.setCloseToTray (on); });
             toggle (startWithWindows, ko ("Windows 시작할 때 LiveMix 실행"), settings.getStartWithWindows(), [this] (bool on)
             {
                 settings.setStartWithWindows (on);
@@ -222,6 +223,7 @@ namespace
             deviceNote.setBounds (area.removeFromTop (36));
             area.removeFromTop (12);
             minimiseToTray.setBounds (area.removeFromTop (28));
+            closeAsk.setBounds (area.removeFromTop (28));
             closeToTray.setBounds (area.removeFromTop (28));
             startWithWindows.setBounds (area.removeFromTop (28));
             skipWhenOff.setBounds (area.removeFromTop (28));
@@ -258,7 +260,7 @@ namespace
         juce::TextButton micHotkeyClear { "x" }, fxHotkeyClear { "x" };
         juce::ComboBox deviceCombo, bufferCombo;
         juce::TextButton panelButton;
-        juce::ToggleButton minimiseToTray, closeToTray, startWithWindows, skipWhenOff;
+        juce::ToggleButton minimiseToTray, closeAsk, closeToTray, startWithWindows, skipWhenOff;
         bool refreshing = false;
     };
 

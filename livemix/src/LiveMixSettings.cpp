@@ -20,6 +20,7 @@ namespace Keys
     constexpr const char* windowState = "windowState";
     constexpr const char* minimiseToTray = "minimiseToTray";
     constexpr const char* closeToTray = "closeToTray";
+    constexpr const char* closeAsk = "closeAsk";
     constexpr const char* startWithWindows = "startWithWindows";
     constexpr const char* skipPluginsWhenOff = "skipPluginsWhenOff";
     constexpr const char* backupUrl = "backupUrl";
@@ -100,6 +101,8 @@ bool LiveMixSettings::getMinimiseToTray() const { return settings->getBoolValue 
 void LiveMixSettings::setMinimiseToTray (bool on) { settings->setValue (Keys::minimiseToTray, on); }
 bool LiveMixSettings::getCloseToTray() const { return settings->getBoolValue (Keys::closeToTray, true); }
 void LiveMixSettings::setCloseToTray (bool on) { settings->setValue (Keys::closeToTray, on); }
+bool LiveMixSettings::getCloseAsk() const { return settings->getBoolValue (Keys::closeAsk, true); }
+void LiveMixSettings::setCloseAsk (bool on) { settings->setValue (Keys::closeAsk, on); }
 bool LiveMixSettings::getStartWithWindows() const { return settings->getBoolValue (Keys::startWithWindows, false); }
 void LiveMixSettings::setStartWithWindows (bool on) { settings->setValue (Keys::startWithWindows, on); }
 bool LiveMixSettings::getSkipPluginsWhenOff() const { return settings->getBoolValue (Keys::skipPluginsWhenOff, true); }

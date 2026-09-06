@@ -31,6 +31,10 @@ public:
     void setMinimiseToTray (bool on);
     bool getCloseToTray() const;
     void setCloseToTray (bool on);
+    /** Ask on the close button whether to quit or go to the tray (default true). When false, the close button uses
+        getCloseToTray() silently. */
+    bool getCloseAsk() const;
+    void setCloseAsk (bool on);
     bool getStartWithWindows() const;
     void setStartWithWindows (bool on);
     /** A mic that is OFF skips its plugins (see MixEngine::setSkipChainWhenOff). */

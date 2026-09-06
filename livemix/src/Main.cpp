@@ -380,10 +380,37 @@ public:
 
         void closeButtonPressed() override
         {
-            if (prefs.getCloseToTray())
-                app.hideToTray();
-            else
-                juce::JUCEApplication::getInstance()->systemRequestedQuit();
+            if (! prefs.getCloseAsk())
+            {
+                if (prefs.getCloseToTray())
+                    app.hideToTray();
+                else
+                    juce::JUCEApplication::getInstance()->systemRequestedQuit();
+
+                return;
+            }
+
+            // 3 buttons: JUCE returns 1 for the first (종료), 2 for the second (트레이로), 0 for the third (취소)
+            juce::Component::SafePointer<MainWindow> safe (this);
+            juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                              .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                                              .withTitle (ko ("LiveMix 닫기"))
+                                              .withMessage (ko ("종료할까요, 트레이로 보낼까요?") + juce::newLine + juce::newLine
+                                                                + ko ("트레이에 있어도 소리와 뮤트그룹 핫키는 계속 동작합니다. (설정에서 '닫을 때 물어보기'를 끄면 이 창 없이 바로 처리합니다)"))
+                                              .withButton (ko ("종료"))
+                                              .withButton (ko ("트레이로"))
+                                              .withButton (ko ("취소")),
+                                          [safe] (int result)
+            {
+                if (safe == nullptr)
+                    return;
+
+                if (result == 1)
+                    juce::JUCEApplication::getInstance()->systemRequestedQuit();   // 종료
+                else if (result == 2)
+                    safe->app.hideToTray();                                        // 트레이로
+                // 0 = 취소: the window stays
+            });
         }
 
         void minimiseButtonPressed() override
