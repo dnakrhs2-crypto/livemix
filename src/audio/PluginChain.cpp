@@ -48,6 +48,10 @@ bool PluginChain::prepareSlot (Slot& slot)
         if (! plugin.setBusesLayout (layout))
             plugin.enableAllBuses();   // fall back to whatever the plugin insists on; scratch buffers adapt
 
+        // releaseResources first so a re-prepare (a device / sample-rate / buffer change) actually takes effect:
+        // JUCE's VST3 prepareToPlay early-returns when the plugin is active and the details already match, and
+        // setRateAndBufferSizeDetails has just set them to the new values - without this the DSP keeps its old setup.
+        plugin.releaseResources();
         plugin.setRateAndBufferSizeDetails (sampleRate, blockSize);
         plugin.prepareToPlay (sampleRate, blockSize);
         wanted = juce::jmax (2, plugin.getTotalNumInputChannels(), plugin.getTotalNumOutputChannels());

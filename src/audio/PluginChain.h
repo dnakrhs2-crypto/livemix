@@ -99,6 +99,9 @@ public:
 
     /** Sum of the tails of the active (non-bypassed) plugins in series, clamped to [0, maxTailSeconds]. Any thread. */
     double getTailSeconds() const;
+    /** Recompute the cached tail (message thread): a plugin may report a longer / shorter tail after a parameter
+        change without any structural edit. */
+    void refreshTailCache() { updateTailCache(); }
 
     /** True once (since the previous call) when any hosted plugin reported a parameter / state change,
         e.g. the user turned a knob in an editor. Any thread. Used for dirty tracking. */

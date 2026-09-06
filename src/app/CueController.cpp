@@ -404,26 +404,42 @@ void CueController::playlistStep (const juce::Uuid& groupId)
         const double startAt = clock() + child->preWaitSeconds;
         const bool audition = run.audition;
 
-        if (! scheduleStart (childId, startAt, audition))   // std::map: 'run' stays valid even if a nested playlist registers
+        const bool started = scheduleStart (childId, startAt, audition);
+
+        // scheduleStart runs a zero-pre-wait child at once, and that child may be a control cue that stops (and so
+        // erases) this very playlist. From here 'run' and 'it' may be dangling: re-find the entry before any more use.
+        it = playlists.find (groupId);
+
+        if (it == playlists.end())
+            return;
+
+        if (! started)
         {
             // could not start (file missing ...): on to the next, but a list where nothing starts must not spin forever
-            if (++run.failures >= (int) run.order.size())
+            if (++it->second.failures >= (int) it->second.order.size())
                 break;
 
-            ++run.position;
+            ++it->second.position;
             continue;
         }
 
-        run.failures = 0;
+        it->second.failures = 0;
+
+        // a zero-pre-wait child can re-enter this playlist (a control cue that starts / advances G): the re-entrant
+        // call already installed the follow watch for whatever is playing now. If this run has moved off the child we
+        // dispatched, do not install a second watch (it would start the next child while the current one plays).
+        if (it->second.current != childId)
+            return;
 
         // the pre-wait of the child after this one: a crossfade must start that much earlier to land on time
         double nextPreWait = 0.0;
 
         {
-            const int nextPos = run.position + 1 < (int) run.order.size() ? run.position + 1 : (loop && ! run.order.empty() ? 0 : -1);
+            auto& r = it->second;
+            const int nextPos = r.position + 1 < (int) r.order.size() ? r.position + 1 : (loop && ! r.order.empty() ? 0 : -1);
 
             if (nextPos >= 0)
-                if (const auto* nextChild = document.findCueAnywhere (run.order[(size_t) nextPos]))
+                if (const auto* nextChild = document.findCueAnywhere (r.order[(size_t) nextPos]))
                     nextPreWait = juce::jmax (0.0, nextChild->preWaitSeconds);
         }
 
