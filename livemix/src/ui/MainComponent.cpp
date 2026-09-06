@@ -903,7 +903,10 @@ void MainComponent::withSessionSecured (std::function<void()> action)
         alert->enterModalState (true, juce::ModalCallbackFunction::create ([safeThis, action] (int r)
         {
             if (safeThis != nullptr && r == 1)
+            {
+                safeThis->document.discardUnsavedChanges();   // the shutdown save must not resurrect what was just discarded
                 action();
+            }
         }), true);
         return;
     }
@@ -1059,7 +1062,20 @@ void MainComponent::saveSessionAs (std::function<void (bool)> then)
         }
 
         if (! file.hasFileExtension (MixSession::fileExtension))
+        {
             file = file.withFileExtension (MixSession::fileExtension);
+
+            // the chooser warned about the name the operator typed (e.g. "Show.txt"), not this one: never overwrite it unseen
+            if (file.existsAsFile())
+            {
+                self.setSaveError (ko ("같은 이름의 세션 파일이 이미 있습니다 (확장자를 붙인 이름): ") + file.getFullPathName());
+
+                if (then)
+                    then (false);
+
+                return;
+            }
+        }
 
         if (self.document.getSession().name.isEmpty() || self.document.getSession().name == ko ("새 세션"))
             self.document.setSessionName (file.getFileNameWithoutExtension());

@@ -72,6 +72,9 @@ public:
     /** A plugin chain was edited live (the engine is the truth): the file is out of date. 'refreshViews' false is for
         a parameter turned in a plugin editor: the views need no refresh, only the dirty state (announced once). */
     void markDirty (bool refreshViews = true);
+    /** The operator discarded unsaved changes (a save that failed on quit, then "discard and continue"): the session
+        is no longer dirty, so the shutdown save does not bring the discarded edits back. */
+    void discardUnsavedChanges() noexcept { dirty.store (false, std::memory_order_release); }
     /** Asks every chain whether a plugin reported a parameter / state change since the last poll; true (and dirty)
         when one did. The timer polls; anything that decides on the dirty state asks first. */
     bool pollPluginEdits();

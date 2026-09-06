@@ -272,10 +272,12 @@ void FxDrawer::commitOutput()
     if (refreshing || selected.isNull())
         return;
 
+    const auto* f = fx();
+    const int sel = directCombo.getSelectedId();
     MixOutput output;
     output.master = masterChip.getToggleState();
     output.direct = directChip.getToggleState();
-    output.directFirst = juce::jmax (0, directCombo.getSelectedId() - 1);
+    output.directFirst = sel > 0 ? sel - 1 : (f != nullptr ? f->output.directFirst : 2);   // keep the saved pair when the picker has no matching item
     document.setFxOutput (selected, output);
 }
 

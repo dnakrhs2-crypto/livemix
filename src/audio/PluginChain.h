@@ -52,7 +52,7 @@ public:
     using Factory = std::function<std::unique_ptr<juce::AudioPluginInstance> (const PluginSlotState&, juce::String& error)>;
 
     static constexpr double maxTailSeconds = 10.0;
-    static constexpr int maxScratchChannels = 32;   // past this JUCE allocates a channel table per block: such a plugin is refused
+    static constexpr int maxScratchChannels = 31;   // JUCE's AudioBuffer holds < 32 channel pointers inline (a 32-channel view needs 33 and allocates on the audio thread); a plugin wanting more is refused
     static constexpr int stallBlocks = 200;         // dry passes in a row before the operator hears of a plugin that does not answer
 
     PluginChain() = default;

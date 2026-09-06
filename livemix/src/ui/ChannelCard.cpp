@@ -361,7 +361,10 @@ void ChannelCard::commitInput()
     if (refreshing)
         return;
 
-    const int first = juce::jmax (0, inputCombo.getSelectedId() - 1);
+    const auto* c = channel();
+    const int sel = inputCombo.getSelectedId();
+    // no matching item (a mono input mid-toggle, a route the device no longer has): keep the channel's input rather than fall to input 1
+    const int first = sel > 0 ? sel - 1 : (c != nullptr ? c->inputFirst : 0);
     document.setChannelInput (channelId, first, stereoToggle.getToggleState());
 }
 
@@ -370,10 +373,13 @@ void ChannelCard::commitOutput()
     if (refreshing)
         return;
 
+    const auto* c = channel();
+    const int sel = directCombo.getSelectedId();
     MixOutput output;
     output.master = masterChip.getToggleState();
     output.direct = directChip.getToggleState();
-    output.directFirst = juce::jmax (0, directCombo.getSelectedId() - 1);
+    // no matching pair (e.g. a saved 7-8 on a 4-out device): keep the saved pair, do not fall to 1-2
+    output.directFirst = sel > 0 ? sel - 1 : (c != nullptr ? c->output.directFirst : 2);
     document.setChannelOutput (channelId, output);
 }
 
