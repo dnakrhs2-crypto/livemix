@@ -44,11 +44,23 @@ struct MixChannel
     bool muteGroup = false;   // in the mic mute group: the group's hotkey mutes it (its own switch stays)
     int inputFirst = 0;    // 0-based device input; a stereo channel takes inputFirst and inputFirst + 1
     bool stereo = false;
+    juce::Uuid aux = juce::Uuid::null();   // null: device input; otherwise this aux's post-switch stereo tap
     double pan = 0.0;      // -1..1: left / centre / right (stereo channels use balance)
     std::vector<PluginSlotState> chain;
     std::vector<MixSend> sends;   // one per FX channel after sanitise()
     MixOutput output;
     std::vector<MixPluginGroup> pluginGroups;   // up to MixSession::maxPluginGroups, numbered 1.. on the card
+};
+
+/** A send-only device input through its own chain and ON/OFF switch, shared by mic channels. No outputs or FX sends. */
+struct MixAux
+{
+    juce::Uuid id;
+    juce::String name;
+    bool on = true;
+    int inputFirst = 0;
+    bool stereo = false;
+    std::vector<PluginSlotState> chain;
 };
 
 /** An FX channel (reverb, delay ...): the sum of the sends through a VST3 chain, then a return amount, to the outputs. */
@@ -89,6 +101,7 @@ struct MixSession
 {
     static constexpr int currentVersion = 4;   // 4 (0.11.0): device type/endpoints and OBS sending; older LiveMix refuses the file
     static constexpr int maxChannels = 8;
+    static constexpr int maxAux = 4;
     static constexpr int maxFx = 4;
     static constexpr int maxDeviceChannels = 64;
     static constexpr int maxChainSlots = 16;                        // plugins per chain
@@ -103,19 +116,24 @@ struct MixSession
     bool nameChosen = false;
     MixDevice device;
     std::vector<MixChannel> channels;
+    std::vector<MixAux> auxes;
     std::vector<MixFx> fx;
     MixMaster master;
 
     MixChannel* findChannel (const juce::Uuid& id) noexcept;
     const MixChannel* findChannel (const juce::Uuid& id) const noexcept;
+    MixAux* findAux (const juce::Uuid& id) noexcept;
+    const MixAux* findAux (const juce::Uuid& id) const noexcept;
     MixFx* findFx (const juce::Uuid& id) noexcept;
     const MixFx* findFx (const juce::Uuid& id) const noexcept;
     int indexOfFx (const juce::Uuid& id) const noexcept;
 
     /** A new mic channel / FX channel with the next free name, appended. Returns its index (-1 at the limit). */
     int addChannel (const juce::String& newName = {});
+    int addAux (const juce::String& newName = {});
     int addFx (const juce::String& newName = {});
     void removeChannel (const juce::Uuid& id);
+    void removeAux (const juce::Uuid& id);   // keeps channel references: a missing aux is silent
     void removeFx (const juce::Uuid& id);
 
     /** The send of 'channel' to 'fx' (created when missing). */

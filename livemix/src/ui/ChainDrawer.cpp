@@ -868,6 +868,14 @@ const MixChannel* ChainDrawer::owningChannel() const
     return nullptr;
 }
 
+bool ChainDrawer::owningAux() const
+{
+    for (const auto& aux : document.getSession().auxes)
+        if (document.getEngine().getAuxChain (aux.id) == chain)
+            return true;
+    return false;
+}
+
 const MixMaster* ChainDrawer::owningMaster() const
 {
     return chain == &document.getEngine().getMasterChain() ? &document.getSession().master : nullptr;
@@ -997,7 +1005,9 @@ void ChainDrawer::applySet (const PluginSet& set)
         return;
     const auto suffix = owningMaster() != nullptr
         ? (set.sends ? tr (" (마스터에는 FX 센드값을 넣지 않았습니다)") : juce::String())
-        : (owningChannel() == nullptr && (set.sends || set.groups) ? tr (" (FX 체인에는 플러그인만 넣었습니다)") : juce::String());
+        : (owningChannel() == nullptr && (set.sends || set.groups)
+               ? (owningAux() ? tr (" (억스 체인에는 플러그인만 넣었습니다)") : tr (" (FX 체인에는 플러그인만 넣었습니다)"))
+               : juce::String());
     const auto errors = document.applyPluginSet (*chain, set);
     refresh();
     if (onChainEdited)

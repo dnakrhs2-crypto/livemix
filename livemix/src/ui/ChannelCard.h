@@ -53,13 +53,13 @@ public:
 
 private:
     struct SendRow;
-    struct ChainChip;
 
     int chainWidthForWidth (int width) const;
     int chainHeightForWidth (int width) const;
     void rebuildSends();
     void rebuildChain();
     void commitInput();
+    static constexpr int auxItemBase = 1001;   // input box ids: device inputs are first + 1 (1..64), auxes from here
     void commitOutput (bool pairSelected = false);
     void showMenu();
     const MixChannel* channel() const;

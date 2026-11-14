@@ -69,6 +69,7 @@ private:
     void saveChainAsPreset();
     const MixChannel* owningChannel() const;
     const MixMaster* owningMaster() const;
+    bool owningAux() const;   // an aux channel's chain: plugins only, like an FX chain
     void showSetMenu();
     void saveChainAsSet (const PluginSetEntry& entry);
     void loadSet (const PluginSet& set);

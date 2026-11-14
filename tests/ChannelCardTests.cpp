@@ -308,6 +308,73 @@ public:
                 expectEquals (document.getSession().fx[0].output.directFirst, 4);
             }
         }
+
+        beginTest ("aux channels in the input box: picking one routes the mic, a device input takes it back, a deleted aux reads missing");
+        {
+            MixEngine auxEngine;
+            MixDocument auxDocument (auxEngine);
+            auxDocument.applyToEngine();
+            const auto mic = auxDocument.getSession().channels[0].id;
+            ChannelCard auxCard (auxDocument, mic);
+            auxCard.setLookAndFeel (&lookAndFeel);
+            auxCard.setDeviceChannels ({ "1", "2", "3", "4" }, { "1", "2" });
+            const auto aux = auxDocument.addAux();
+            auxDocument.renameAux (aux, "Input");
+            auxCard.refresh();
+            auto* box = childOfType<juce::ComboBox> (auxCard);
+            auto* stereo = childOfType<juce::ToggleButton> (auxCard);
+            expect (box != nullptr && stereo != nullptr);
+            if (box != nullptr && stereo != nullptr)
+            {
+                int auxItem = 0;
+                for (int i = 0; i < box->getNumItems(); ++i)
+                    if (box->getItemText (i) == "AUX1  Input") auxItem = box->getItemId (i);
+                expect (auxItem > 0, "the aux is listed in the mic's input box under its card's badge");
+
+                box->setSelectedId (auxItem, juce::sendNotificationSync);
+                expect (auxDocument.getSession().channels[0].aux == aux);
+                auxCard.refresh();
+                expectEquals (box->getSelectedId(), auxItem);
+                expect (! stereo->isEnabled());
+                expect (box->isColourSpecified (juce::ComboBox::outlineColourId));
+                expectEquals (box->getTooltip(), juce::String ("AUX1  Input"));   // the whole name, however narrow the box
+
+                box->setSelectedId (2, juce::sendNotificationSync);   // device input 2
+                expect (auxDocument.getSession().channels[0].aux.isNull());
+                expectEquals (auxDocument.getSession().channels[0].inputFirst, 1);
+                auxCard.refresh();
+                expect (stereo->isEnabled());
+                expect (! box->isColourSpecified (juce::ComboBox::outlineColourId));
+                expect (box->getTooltip().isEmpty());
+                expect (box->findColour (juce::ComboBox::textColourId) == gocue::livemix::Palette::text);
+
+                expect (auxDocument.setChannelAux (mic, aux));
+                auxDocument.removeAux (aux);   // the mic still points at it: the box says so (yellow) instead of showing a device input
+                auxCard.refresh();
+                expectEquals (box->getText(), ko ("억스 (없음)"));
+                expect (box->findColour (juce::ComboBox::textColourId) == gocue::livemix::Palette::meterYellow);
+
+                box->setSelectedId (3, juce::sendNotificationSync);   // a device input again: the plain colours come back
+                expect (auxDocument.getSession().channels[0].aux.isNull());
+                auxCard.refresh();
+                expect (box->findColour (juce::ComboBox::textColourId) == gocue::livemix::Palette::text);
+                expect (! box->isColourSpecified (juce::ComboBox::outlineColourId));
+
+                // a device with fewer inputs: the saved input it lacks stays yellow (mono, and a pair missing its right
+                // input) and reads plain again once the device has it
+                auxCard.setDeviceChannels ({ "1", "2" }, { "1", "2" });
+                auxCard.refresh();
+                expect (box->findColour (juce::ComboBox::textColourId) == gocue::livemix::Palette::meterYellow);
+                auxDocument.setChannelInput (mic, 1, true);   // 2-3 on a two-input device
+                auxCard.refresh();
+                expect (box->findColour (juce::ComboBox::textColourId) == gocue::livemix::Palette::meterYellow);
+                auxDocument.setChannelInput (mic, 0, true);   // 1-2: there
+                auxCard.refresh();
+                expect (box->findColour (juce::ComboBox::textColourId) == gocue::livemix::Palette::text);
+                auxCard.setDeviceChannels ({ "1", "2", "3", "4" }, { "1", "2" });
+            }
+            auxCard.setLookAndFeel (nullptr);
+        }
     }
 };
 

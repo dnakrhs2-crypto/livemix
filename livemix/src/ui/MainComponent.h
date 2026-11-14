@@ -1,5 +1,6 @@
 #pragma once
 
+#include "AuxCard.h"
 #include "ChainDrawer.h"
 #include "ChannelCard.h"
 #include "ControlServer.h"
@@ -187,6 +188,9 @@ private:
     void deviceChosen();   // the operator picked a device / buffer: the session remembers it
     void loadSession (const juce::File& file);
     juce::String titleForChainOwner() const;
+    void askRemoveAux (const juce::Uuid& id);   // the aux card's menu: confirm, then its mics take the device input
+    void revealCard (const juce::Component& card);   // scrolls the cards so a new one shows whole
+    const juce::Component* chainOwnerCard() const;   // the mic or aux card whose chain the drawer shows (none: master, FX)
     void updateDeviceNames();
     juce::File defaultSessionFolder() const;
     void showStatus (const juce::String& text, bool error = false);
@@ -223,6 +227,8 @@ private:
     juce::Component cardsHolder;
     std::vector<std::unique_ptr<ChannelCard>> cards;
     juce::TextButton addChannelButton;
+    std::vector<std::unique_ptr<AuxCard>> auxCards;   // after the mics, before the add buttons
+    juce::TextButton addAuxButton;
     MasterCard masterCard;
     ChainDrawer chainDrawer;
     FxDrawer fxDrawer;
@@ -230,6 +236,7 @@ private:
     Drawer drawer = Drawer::none;
     juce::Uuid chainOwnerId = juce::Uuid::null();   // the channel / FX whose chain the drawer shows (null = master)
     bool chainIsFx = false;
+    bool chainIsAux = false;
     juce::Label statusLeft, statusRight;
     juce::TextEditor noticeText;   // read-only: wraps by word, breaks a long token, scrolls when long
     std::unique_ptr<juce::ResizableCornerComponent> cornerGrip;   // a visible handle: the frame's own edge is thin (and hard to hit over remote desktop)

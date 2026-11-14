@@ -441,6 +441,89 @@ public:
         }
         card.setLookAndFeel (nullptr);
         runLayoutIntegration();
+        runChainDrawerKeepsCard();
+    }
+
+    void runChainDrawerKeepsCard()
+    {
+        // 0.24.0: the side drawer narrows the cards and they grow taller. The card whose chain opens keeps its place on
+        // screen, and closing the drawer (x, Esc) does not slide the view to the later cards; the master's chain has no
+        // card to keep, so the view does not move.
+        beginTest ("chain drawer: the card being edited keeps its place when the drawer opens and closes; the master does not scroll");
+        struct IsolatedFolder
+        {
+            juce::File file = juce::File::createTempFile ("-livemix-drawer");
+            ~IsolatedFolder() { file.deleteRecursively(); }
+        } folder;
+        LiveMixSettings settings (folder.file);
+        settings.setMicMuteHotkey ({});
+        settings.setFxMuteHotkey ({});
+        settings.setWindowHotkey ({});
+        MixEngine engine ("Local\\LiveMix.DrawerTest." + juce::Uuid().toString());
+        MixDocument document (engine);
+        document.applyToEngine();
+        while ((int) document.getSession().channels.size() < 8)
+            document.addChannel();
+        for (int i = 0; i < MixSession::maxAux; ++i)
+            document.addAux();
+        ObsPluginActions actions;
+        actions.roots = [path = folder.file] { return ObsPluginInstaller::Roots { path, path, path, [] { return false; }, {} }; };
+        actions.elevate = [] (juce::String&) { return ObsPluginInstaller::Result::needsElevation; };
+        gocue::livemix::MainComponent main (document, settings, actions);   // no native window or audio device is opened
+        main.setSize (1536, 800);   // 1920x1080 at 125 %
+        juce::Viewport* viewport = nullptr;
+        MasterCard* master = nullptr;
+        ChainDrawer* drawer = nullptr;
+        for (auto* child : main.getChildren())
+        {
+            if (auto* v = dynamic_cast<juce::Viewport*> (child); v != nullptr && v->isVisible()) viewport = v;
+            if (auto* m = dynamic_cast<MasterCard*> (child)) master = m;
+            if (auto* d = dynamic_cast<ChainDrawer*> (child)) drawer = d;
+        }
+        expect (viewport != nullptr && master != nullptr && drawer != nullptr);
+        if (viewport == nullptr || master == nullptr || drawer == nullptr) return;
+        std::vector<ChannelCard*> mics;
+        std::vector<AuxCard*> auxes;
+        for (auto* child : viewport->getViewedComponent()->getChildren())
+        {
+            if (auto* c = dynamic_cast<ChannelCard*> (child)) mics.push_back (c);
+            if (auto* a = dynamic_cast<AuxCard*> (child)) auxes.push_back (a);
+        }
+        expectEquals ((int) mics.size(), 8);
+        expectEquals ((int) auxes.size(), MixSession::maxAux);
+        if (mics.size() != 8 || (int) auxes.size() != MixSession::maxAux) return;
+        const auto onScreen = [&] (juce::Component& card) { return card.getY() - viewport->getViewPositionY(); };
+
+        const auto openAndClose = [&] (juce::Component& card, const std::function<void()>& open, bool escape)
+        {
+            viewport->setViewPosition (0, card.getY() - 120);
+            const int before = onScreen (card);
+            open();
+            expect (drawer->isVisible());
+            expect (viewport->getViewArea().intersects (card.getBounds()), "the card whose chain opened stays in view");
+            if (before + card.getHeight() <= viewport->getViewHeight())
+                expectEquals (onScreen (card), before);   // it still fits where it was: not moved at all
+            const int opened = onScreen (card);
+            if (escape)
+                main.keyPressed (juce::KeyPress (juce::KeyPress::escapeKey), &main);
+            else
+                drawer->onClose();
+            expect (! drawer->isVisible());
+            expectEquals (onScreen (card), opened);   // closing keeps it there too (it slid to the later cards)
+        };
+
+        for (bool escape : { false, true })
+        {
+            openAndClose (*auxes[0], [&] { auxes[0]->onOpenChain (auxes[0]->getAuxId()); }, escape);
+            openAndClose (*mics[7], [&] { mics[7]->onOpenChain (mics[7]->getChannelId()); }, escape);
+        }
+
+        viewport->setViewPosition (0, 300);   // the master's chain: no card is kept, the view stays put
+        master->onOpenChain();
+        expect (drawer->isVisible());
+        expectEquals (viewport->getViewPositionY(), 300);
+        drawer->onClose();
+        expectEquals (viewport->getViewPositionY(), 300);
     }
 
     void runLayoutIntegration()
@@ -481,13 +564,15 @@ public:
         if (viewport == nullptr || master == nullptr || top == nullptr || drawer == nullptr) return;
         ChannelCard* first = nullptr;
         juce::Component* add = nullptr;
+        juce::Component* addAux = nullptr;   // 0.24.0: the add row holds two buttons, a mic channel and an aux channel
         for (auto* child : viewport->getViewedComponent()->getChildren())
         {
             if (auto* c = dynamic_cast<ChannelCard*> (child); c != nullptr && first == nullptr) first = c;
-            if (dynamic_cast<juce::TextButton*> (child) != nullptr) add = child;
+            if (auto* b = dynamic_cast<juce::TextButton*> (child))
+                (b->getButtonText() == ko ("+ 억스 채널 추가") ? addAux : add) = child;
         }
-        expect (first != nullptr && add != nullptr);
-        if (first == nullptr || add == nullptr) return;
+        expect (first != nullptr && add != nullptr && addAux != nullptr);
+        if (first == nullptr || add == nullptr || addAux == nullptr) return;
         const auto rect = [&] (juce::Component& component, juce::Rectangle<int> expected)
         {
             expectEquals (component.getBounds().toString(), expected.toString());
@@ -500,7 +585,8 @@ public:
             rect (*master, { 16, 670, 1400, 192 });
             rect (*viewport, { 16, 106, 1408, 544 });
             rect (*first, { 0, 0, 1400, 156 });
-            rect (*add, { 0, 504, 1400, 56 });
+            rect (*add, { 0, 504, 694, 56 });
+            rect (*addAux, { 706, 504, 694, 56 });
             expectEquals (viewport->getViewedComponent()->getHeight(), 560);
             expect (viewport->getVerticalScrollBar().isVisible());
             main.setSize (1440, 1000);
@@ -516,7 +602,8 @@ public:
                 rect (*master, { 16, 586, 960, 276 });
                 rect (*viewport, { 16, 106, 968, 460 });
                 rect (*first, { 0, 0, 960, 272 });
-                rect (*add, { 0, 852, 960, 56 });
+                rect (*add, { 0, 852, 474, 56 });
+                rect (*addAux, { 486, 852, 474, 56 });
                 expectEquals (viewport->getViewedComponent()->getHeight(), 908);
                 expect (viewport->getVerticalScrollBar().isVisible());
                 if (fx) top->onFxPanel();
@@ -528,7 +615,8 @@ public:
             rect (*master, { 16, 609, 428, 346 });
             rect (*viewport, { 16, 190, 428, 399 });
             rect (*first, { 0, 0, 420, 618 });
-            rect (*add, { 0, 1890, 420, 56 });
+            rect (*add, { 0, 1890, 204, 56 });
+            rect (*addAux, { 216, 1890, 204, 56 });
             expectEquals (viewport->getViewedComponent()->getHeight(), 1946);
             expect (viewport->getVerticalScrollBar().isVisible());
             first->onOpenChain (first->getChannelId());

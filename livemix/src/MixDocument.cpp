@@ -18,6 +18,8 @@ namespace
         result.emplace (juce::Uuid::null(), session.master.chain);
         for (const auto& channel : session.channels)
             result.emplace (channel.id, channel.chain);
+        for (const auto& aux : session.auxes)
+            result.emplace (aux.id, aux.chain);
         for (const auto& fx : session.fx)
             result.emplace (fx.id, fx.chain);
         return result;
@@ -152,10 +154,12 @@ juce::Result MixDocument::save (const juce::File& newFile, const MixSession* cap
 
         const bool reuse = attempt == 0 && ! edited && captureForSave != nullptr
             && std::all_of (session.channels.begin(), session.channels.end(), [&] (const MixChannel& c) { return captureForSave->findChannel (c.id) != nullptr; })
+            && std::all_of (session.auxes.begin(), session.auxes.end(), [&] (const MixAux& a) { return captureForSave->findAux (a.id) != nullptr; })
             && std::all_of (session.fx.begin(), session.fx.end(), [&] (const MixFx& f) { return captureForSave->findFx (f.id) != nullptr; });
         if (reuse)
         {
             for (auto& c : session.channels) c.chain = captureForSave->findChannel (c.id)->chain;
+            for (auto& a : session.auxes) a.chain = captureForSave->findAux (a.id)->chain;
             for (auto& f : session.fx) f.chain = captureForSave->findFx (f.id)->chain;
             session.master.chain = captureForSave->master.chain;
         }
@@ -219,6 +223,46 @@ void MixDocument::removeChannel (const juce::Uuid& id)
     structureChanged();
 }
 
+juce::Uuid MixDocument::addAux()
+{
+    const int index = session.addAux();
+    if (index < 0)
+        return juce::Uuid::null();
+
+    engine.applySession (session);
+    structureChanged();
+    return session.auxes[(size_t) index].id;
+}
+
+void MixDocument::removeAux (const juce::Uuid& id)
+{
+    if (session.findAux (id) == nullptr)
+        return;
+    session.removeAux (id);
+    engine.applySession (session);
+    structureChanged();
+}
+
+bool MixDocument::setChannelAux (const juce::Uuid& channelId, const juce::Uuid& auxId)
+{
+    auto* c = session.findChannel (channelId);
+    const auto* a = auxId.isNull() ? nullptr : session.findAux (auxId);
+    if (c == nullptr || (! auxId.isNull() && a == nullptr))
+        return false;
+    if (c->aux == auxId)
+        return true;
+
+    c->aux = auxId;
+    if (a != nullptr)
+    {
+        c->inputFirst = a->inputFirst;
+        c->stereo = a->stereo;
+    }
+    engine.applySession (session);
+    structureChanged();
+    return true;
+}
+
 juce::Uuid MixDocument::addFx()
 {
     const int index = session.addFx();
@@ -273,10 +317,64 @@ void MixDocument::setChannelInput (const juce::Uuid& id, int first, bool stereo)
 {
     if (auto* c = session.findChannel (id))
     {
+        const bool wasAux = ! c->aux.isNull();
+        c->aux = juce::Uuid::null();
         c->inputFirst = juce::jlimit (0, MixSession::maxDeviceChannels - (stereo ? 2 : 1), first);
         c->stereo = stereo;
-        engine.setChannelInput (id, c->inputFirst, stereo);
+        if (wasAux)
+        {
+            engine.applySession (session);
+            structureChanged();
+        }
+        else
+        {
+            engine.setChannelInput (id, c->inputFirst, stereo);
+            valueChanged();
+        }
+    }
+}
+
+void MixDocument::renameAux (const juce::Uuid& id, const juce::String& name)
+{
+    if (auto* a = session.findAux (id))
+    {
+        const auto trimmed = name.trim();
+        if (trimmed.isEmpty() || trimmed == a->name)
+            return;
+        a->name = trimmed;
+        structureChanged();
+    }
+}
+
+void MixDocument::setAuxOn (const juce::Uuid& id, bool on)
+{
+    if (auto* a = session.findAux (id))
+    {
+        if (a->on == on)
+            return;
+        a->on = on;
+        engine.setAuxOn (id, on);
         valueChanged();
+    }
+}
+
+void MixDocument::setAuxInput (const juce::Uuid& id, int first, bool stereo)
+{
+    if (auto* a = session.findAux (id))
+    {
+        first = juce::jlimit (0, MixSession::maxDeviceChannels - (stereo ? 2 : 1), first);
+        if (a->inputFirst == first && a->stereo == stereo)
+            return;
+        a->inputFirst = first;
+        a->stereo = stereo;
+        for (auto& c : session.channels)
+            if (c.aux == id)
+            {
+                c.inputFirst = first;
+                c.stereo = stereo;
+            }
+        engine.setAuxInput (id, first, stereo);
+        structureChanged();
     }
 }
 
@@ -740,6 +838,7 @@ bool MixDocument::checkPluginState (juce::AudioPluginInstance& plugin)
             }
     };
     for (const auto& channel : session.channels) check (engine.getChannelChain (channel.id), channel.id);
+    for (const auto& aux : session.auxes) check (engine.getAuxChain (aux.id), aux.id);
     for (const auto& fx : session.fx) check (engine.getFxChain (fx.id), fx.id);
     check (&engine.getMasterChain(), juce::Uuid::null());
     if (changed)

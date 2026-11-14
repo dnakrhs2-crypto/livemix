@@ -105,38 +105,6 @@ struct ChannelCard::SendRow : public juce::Component
     bool editingName = false;
 };
 
-/** A numbered chip in the chain summary: click opens the plugin's window. */
-struct ChannelCard::ChainChip : public juce::TextButton
-{
-    ChainChip (int idx, const juce::String& text, bool bypassed) : juce::TextButton (text), index (idx), off (bypassed)
-    {
-        setWantsKeyboardFocus (false);
-    }
-
-    void paintButton (juce::Graphics& g, bool isMouseOverButton, bool) override
-    {
-        auto bounds = getLocalBounds().toFloat().reduced (0.5f);
-        g.setColour (isMouseOverButton ? Palette::slotBg.brighter (0.08f) : Palette::slotBg);
-        g.fillRoundedRectangle (bounds, Palette::controlRadius);
-        g.setColour (Palette::slotLine);
-        g.drawRoundedRectangle (bounds, Palette::controlRadius, 1.0f);
-
-        auto idx = getLocalBounds().reduced (6, 0).removeFromLeft (20).toFloat().withSizeKeepingCentre (20.0f, 20.0f);
-        g.setColour (off ? Palette::lampOff : Palette::accent);
-        g.fillRoundedRectangle (idx, 6.0f);
-        g.setColour (juce::Colours::white);
-        g.setFont (juce::Font (juce::FontOptions (pt (12.0f), juce::Font::bold)));
-        g.drawText (juce::String (index + 1), idx.toNearestInt(), juce::Justification::centred, false);
-
-        g.setColour (off ? Palette::dimText : Palette::text);
-        g.setFont (juce::Font (juce::FontOptions (pt (13.5f), juce::Font::bold)));
-        g.drawText (getButtonText(), getLocalBounds().withTrimmedLeft (32).withTrimmedRight (8), juce::Justification::centredLeft, true);
-    }
-
-    int index;
-    bool off;
-};
-
 //==============================================================================
 ChannelCard::~ChannelCard() = default;
 
@@ -289,8 +257,46 @@ void ChannelCard::refresh()
     micButton.setOn (c->on);
 
     fillChannelCombo (inputCombo, inputNames, c->stereo, MixSession::maxDeviceChannels);
-    selectSavedChannel (inputCombo, inputNames, c->inputFirst, c->stereo);
+    int auxIndex = -1;
+
+    if (! session.auxes.empty() || ! c->aux.isNull())
+    {
+        // the aux channels after the device inputs: picking one makes this mic take that aux's sound
+        inputCombo.addSeparator();
+        inputCombo.addSectionHeading (tr ("억스 채널"));
+
+        for (size_t i = 0; i < session.auxes.size(); ++i)
+        {
+            // its card's badge first, like the receiver chips ('1  보컬'): a name cut short in the 160 px box still says which
+            inputCombo.addItem ("AUX" + juce::String ((int) i + 1) + "  " + session.auxes[i].name, auxItemBase + (int) i);
+
+            if (session.auxes[i].id == c->aux)
+                auxIndex = (int) i;
+        }
+    }
+
+    if (c->aux.isNull())
+    {
+        selectSavedChannel (inputCombo, inputNames, c->inputFirst, c->stereo);   // its text: plain, or yellow for an input the device lacks
+        inputCombo.removeColour (juce::ComboBox::outlineColourId);
+        inputCombo.setTooltip ({});
+    }
+    else
+    {
+        // fed by an aux: the box edged in the accent, like a lit routing chip; an aux the session does not have
+        // (a file from elsewhere) reads yellow - the mic is silent until another input is picked
+        inputCombo.setSelectedId (auxIndex >= 0 ? auxItemBase + auxIndex : 0, juce::dontSendNotification);
+        if (auxIndex < 0)
+            inputCombo.setText (tr ("억스 (없음)"), juce::dontSendNotification);
+        inputCombo.setColour (juce::ComboBox::textColourId, auxIndex >= 0 ? Palette::text : Palette::meterYellow);
+        inputCombo.setColour (juce::ComboBox::outlineColourId, auxIndex >= 0 ? Palette::accent : Palette::meterYellow);
+        inputCombo.setTooltip (auxIndex >= 0 ? inputCombo.getText() : juce::String());   // the whole 'AUX1  name' when the box cuts it
+    }
+
     stereoToggle.setToggleState (c->stereo, juce::dontSendNotification);
+    stereoToggle.setEnabled (c->aux.isNull());   // an aux decides mono / stereo for every mic it feeds
+    stereoToggle.setTooltip (c->aux.isNull() ? tr ("켜면 입력 두 개(왼쪽·오른쪽)를 한 채널로 씁니다")
+                                             : tr ("억스에서 받는 동안은 억스의 스테레오 설정을 따릅니다"));
 
     masterChip.setToggleState (c->output.master, juce::dontSendNotification);
     directChip.setToggleState (c->output.direct, juce::dontSendNotification);
@@ -424,6 +430,17 @@ void ChannelCard::commitInput()
 
     const auto* c = channel();
     const int sel = inputCombo.getSelectedId();
+
+    if (sel >= auxItemBase)
+    {
+        const auto& auxes = document.getSession().auxes;
+
+        if (sel - auxItemBase < (int) auxes.size())
+            document.setChannelAux (channelId, auxes[(size_t) (sel - auxItemBase)].id);
+
+        return;
+    }
+
     // no matching item (a mono input mid-toggle, a route the device no longer has): keep the channel's input rather than fall to input 1
     const int first = sel > 0 ? sel - 1 : (c != nullptr ? c->inputFirst : 0);
     document.setChannelInput (channelId, first, stereoToggle.getToggleState());

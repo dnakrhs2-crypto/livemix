@@ -1,5 +1,6 @@
 #include "MixDocument.h"
 #include "TestGainPlugin.h"
+#include "PluginSet.h"
 
 #include <juce_core/juce_core.h>
 
@@ -16,6 +17,140 @@ public:
 
     void runTest() override
     {
+        beginTest ("aux edits dirty the document, notify input displays and keep live chains when routing changes");
+        {
+            MixEngine engine;
+            MixDocument doc (engine);
+            doc.applyToEngine();
+            const auto mic = doc.getSession().channels[0].id;
+            auto* micChain = engine.getChannelChain (mic);
+            micChain->addPlugin (std::make_unique<TestGainPlugin> (0.25f));
+            doc.setChannelInput (mic, 2, true);
+            doc.discardUnsavedChanges();
+            int structures = 0, values = 0;
+            doc.onStructureChanged = [&] { ++structures; expect (doc.isDirty()); };
+            doc.onValueChanged = [&] { ++values; };
+            const auto aux = doc.addAux();
+            expect (! aux.isNull() && doc.isDirty());
+            expectEquals (structures, 1);
+            expectEquals (doc.getSession().findAux (aux)->inputFirst, 2);
+            expect (doc.getSession().findAux (aux)->stereo);
+            auto* chain = engine.getAuxChain (aux);
+            chain->addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            const auto* plugin = chain->getSlot (0).plugin.get();
+            expect (doc.setChannelAux (mic, aux));
+            expectEquals (structures, 2);
+            expect (doc.getSession().findChannel (mic)->aux == aux);
+            expect (engine.getChannelChain (mic) == micChain && engine.getAuxChain (aux) == chain);
+            doc.discardUnsavedChanges();
+            expect (! doc.setChannelAux (mic, juce::Uuid()));
+            expect (! doc.setChannelAux (juce::Uuid(), aux));
+            expect (doc.setChannelAux (mic, aux));
+            expect (! doc.isDirty());
+            expectEquals (structures, 2);
+            doc.renameAux (aux, " Shared input ");
+            expectEquals (doc.getSession().findAux (aux)->name, juce::String ("Shared input"));
+            expectEquals (structures, 3);
+            doc.setAuxInput (aux, 999, true);
+            expectEquals (structures, 4);
+            expectEquals (doc.getSession().findAux (aux)->inputFirst, MixSession::maxDeviceChannels - 2);
+            expectEquals (doc.getSession().findChannel (mic)->inputFirst, MixSession::maxDeviceChannels - 2);
+            doc.setAuxInput (aux, -5, false);
+            expectEquals (structures, 5);
+            expectEquals (doc.getSession().findChannel (mic)->inputFirst, 0);
+            expect (! doc.getSession().findChannel (mic)->stereo);
+            doc.setAuxOn (aux, false);
+            expect (! doc.getSession().findAux (aux)->on);
+            expectEquals (values, 1);
+            expectEquals (structures, 5);
+            expect (doc.setChannelAux (mic, juce::Uuid::null()));
+            expect (doc.getSession().findChannel (mic)->aux.isNull());
+            expectEquals (structures, 6);
+            expect (doc.setChannelAux (mic, aux));
+            doc.setChannelInput (mic, 1, true);
+            expect (doc.getSession().findChannel (mic)->aux.isNull());
+            expectEquals (doc.getSession().findChannel (mic)->inputFirst, 1);
+            expect (doc.getSession().findChannel (mic)->stereo);
+            expectEquals (structures, 8);
+            expect (chain->getSlot (0).plugin.get() == plugin);
+            expect (doc.setChannelAux (mic, aux));
+            expectEquals (doc.addPluginGroup (aux), -1);
+            for (int i = 1; i < MixSession::maxAux; ++i)
+                expect (! doc.addAux().isNull());
+            doc.discardUnsavedChanges();
+            expect (doc.addAux().isNull());
+            expect (! doc.isDirty());
+            doc.removeAux (aux);
+            expect (doc.isDirty() && doc.getSession().findAux (aux) == nullptr);
+            expect (doc.getSession().findChannel (mic)->aux == aux);
+            expect (engine.getAuxChain (aux) == nullptr && engine.getChannelChain (mic) == micChain);
+        }
+
+        beginTest ("aux chains participate in listeners, live capture, plugin-state checks, snapshot saves and session restore");
+        {
+            const auto file = juce::File::createTempFile (".livemix");
+            MixEngine engine;
+            MixDocument doc (engine);
+            doc.applyToEngine();
+            const auto aux = doc.addAux();
+            struct Listener : PluginChain::Listener
+            {
+                explicit Listener (MixDocument& d) : document (d) {}
+                void chainChanged (PluginChain&) override { document.markDirty(); }
+                MixDocument& document;
+            } listener (doc);
+            int chains = 0;
+            engine.forEachChain ([&] (PluginChain& chain) { ++chains; chain.setListener (&listener); });
+            expectEquals (chains, 4);   // mic, aux, FX, master
+            expect (doc.save (file).wasOk());
+            auto* chain = engine.getAuxChain (aux);
+            auto plugin = std::make_unique<TestGainPlugin> (0.5f);
+            auto* gain = plugin.get();
+            chain->addPlugin (std::move (plugin));
+            expect (doc.isDirty());
+            expect (doc.save (file).wasOk());
+            expect (! doc.isDirty() && ! doc.checkPluginStates());
+            const auto firstState = doc.getSession().findAux (aux)->chain[0].stateBase64;
+            expect (firstState.isNotEmpty());
+            gain->gain = 0.25f;
+            gain->updateHostDisplay();
+            expect (doc.pollPluginEdits() && doc.isDirty());
+            expect (doc.saveIfPossible().wasOk());
+            expect (! doc.isDirty());
+            expect (doc.getSession().findAux (aux)->chain[0].stateBase64 != firstState);
+            gain->gain = 0.125f;   // silent plugin edit, learned on editor close
+            expect (doc.checkPluginState (*gain) && doc.isDirty());
+            std::optional<MixSession> captured;
+            expect (doc.checkPluginStates (&captured) && captured.has_value());
+            const auto capturedState = captured->findAux (aux)->chain[0].stateBase64;
+            const int reads = gain->stateReads;
+            expect (doc.saveIfPossible (&*captured).wasOk());
+            expectEquals (gain->stateReads, reads);
+            expectEquals (doc.getSession().findAux (aux)->chain[0].stateBase64, capturedState);
+            expect (! doc.isDirty() && ! doc.checkPluginStates());
+            MixSession saved;
+            expect (MixSession::load (file, saved).wasOk());
+            expectEquals (saved.findAux (aux)->chain[0].stateBase64, capturedState);
+            engine.forEachChain ([] (PluginChain& c) { c.setListener (nullptr); });
+            juce::StringArray errors;
+            expect (doc.load (file, nullptr, &errors).wasOk());
+            chain = engine.getAuxChain (aux);
+            expect (chain != nullptr);
+            expectEquals (chain->getNumSlots(), 1);   // unavailable test plugin is restored as a state-preserving slot
+            expectEquals (chain->getSlot (0).state.stateBase64, capturedState);
+            expectEquals (errors.size(), 1);
+            expect (! doc.isDirty() && ! doc.checkPluginStates());
+            PluginSet set;
+            set.groups = std::vector<MixPluginGroup> { { {}, true } };
+            set.sends = std::vector<PluginSetSend> { { doc.getSession().fx[0].id, "", 1.0, true } };
+            expect (doc.applyPluginSet (*chain, set).isEmpty());
+            expectEquals (chain->getNumSlots(), 0);
+            expect (doc.getSession().channels[0].pluginGroups.empty() && doc.getSession().master.pluginGroups.empty());
+            expectWithinAbsoluteError (doc.getSession().channels[0].sends[0].amount, 0.0, 1e-12);
+            expect (doc.isDirty());
+            expect (file.deleteFile());
+        }
+
         beginTest ("master groups bypass the live master only, respect overlapping OFF groups and survive reopening");
         {
             MixEngine engine;

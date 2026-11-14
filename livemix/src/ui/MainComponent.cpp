@@ -44,10 +44,32 @@ MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s, ObsPluginAct
     addChannelButton.setColour (juce::TextButton::buttonColourId, Palette::background);
     addChannelButton.onClick = [this]
     {
-        if (document.addChannel().isNull())
+        const auto id = document.addChannel();
+
+        if (id.isNull())
             showStatus (trf ("마이크 채널은 최대 {0}개입니다", juce::String (MixSession::maxChannels)), true);
+        else
+            for (auto& card : cards)
+                if (card->getChannelId() == id)
+                    revealCard (*card);   // above the aux cards it may land out of view
     };
     cardsHolder.addAndMakeVisible (addChannelButton);
+    addAuxButton.setButtonText (tr ("+ 억스 채널 추가"));
+    addAuxButton.setWantsKeyboardFocus (false);
+    addAuxButton.setColour (juce::TextButton::buttonColourId, Palette::background);
+    addAuxButton.setTooltip (tr ("억스 채널: 마스터로 나가지 않고, 받는 마이크 채널의 입력으로만 쓰입니다"));
+    addAuxButton.onClick = [this]
+    {
+        const auto id = document.addAux();
+
+        if (id.isNull())
+            showStatus (trf ("억스 채널은 최대 {0}개입니다", juce::String (MixSession::maxAux)), true);
+        else
+            for (auto& card : auxCards)
+                if (card->getAuxId() == id)
+                    revealCard (*card);
+    };
+    cardsHolder.addAndMakeVisible (addAuxButton);
 
     addAndMakeVisible (masterCard);
     masterCard.onOpenChain = [this] { openChainFor (&engine.getMasterChain(), tr ("마스터")); };
@@ -388,6 +410,45 @@ void MainComponent::rebuildCards()
     }
 
     cards = std::move (next);
+    std::vector<std::unique_ptr<AuxCard>> nextAux;
+
+    for (const auto& a : session.auxes)
+    {
+        std::unique_ptr<AuxCard> card;
+
+        for (auto& existing : auxCards)
+            if (existing != nullptr && existing->getAuxId() == a.id)
+                card = std::move (existing);
+
+        if (card == nullptr)
+        {
+            card = std::make_unique<AuxCard> (document, a.id);
+            card->onOpenChain = [this] (const juce::Uuid& id)
+            {
+                if (const auto* x = document.getSession().findAux (id))
+                    openChainFor (engine.getAuxChain (id), x->name);
+            };
+            card->onAddPlugin = [this, anchor = card.get()] (const juce::Uuid& id)
+            {
+                if (const auto* x = document.getSession().findAux (id))
+                    addPluginTo (engine.getAuxChain (id), x->name, &anchor->getAddPluginButton());
+            };
+            card->onRemove = [this] (const juce::Uuid& id) { askRemoveAux (id); };
+            card->onOpenPluginEditor = [this] (const juce::Uuid& id, int slot)
+            {
+                if (auto* chain = engine.getAuxChain (id))
+                    if (slot < chain->getNumSlots() && chain->getSlot (slot).plugin != nullptr)
+                        if (const auto* x = document.getSession().findAux (id))
+                            windows.open (*chain->getSlot (slot).plugin, x->name + " - " + chain->getSlot (slot).plugin->getName());
+            };
+            cardsHolder.addAndMakeVisible (*card);
+        }
+
+        card->setDeviceChannels (inputNames);   // and re-reads the aux
+        nextAux.push_back (std::move (card));
+    }
+
+    auxCards = std::move (nextAux);
     masterCard.setDeviceChannels (outputNames);
     fxDrawer.setDeviceChannels (outputNames);
 
@@ -400,7 +461,10 @@ void MainComponent::rebuildCards()
     // the chain drawer follows its owner; an owner that is gone closes it
     if (drawer == Drawer::chain)
     {
-        PluginChain* chain = chainOwnerId.isNull() ? &engine.getMasterChain() : chainIsFx ? engine.getFxChain (chainOwnerId) : engine.getChannelChain (chainOwnerId);
+        PluginChain* chain = chainOwnerId.isNull() ? &engine.getMasterChain()
+                           : chainIsFx ? engine.getFxChain (chainOwnerId)
+                           : chainIsAux ? engine.getAuxChain (chainOwnerId)
+                                        : engine.getChannelChain (chainOwnerId);
 
         if (chain == nullptr)
             showDrawer (Drawer::none);
@@ -418,6 +482,9 @@ void MainComponent::refreshValues()
     muteGroups.apply();   // a '뮤트그룹' chip may have changed while its group is muted
 
     for (auto& card : cards)
+        card->refresh();
+
+    for (auto& card : auxCards)
         card->refresh();
 
     masterCard.refresh();
@@ -473,8 +540,22 @@ void MainComponent::layoutCards()
         y += h + gap;
     }
 
-    addChannelButton.setBounds (0, y, width, 56);
+    for (auto& card : auxCards)
+    {
+        card->setLayout (mode);
+        const int h = card->getPreferredHeight (width);
+        card->setBounds (0, y, width, h);
+        y += h + gap;
+    }
+
+    // the two add buttons share the row: a mic channel, or an aux that feeds mic channels
+    const int half = (width - gap) / 2;
+    addChannelButton.setBounds (0, y, half, 56);
+    addAuxButton.setBounds (width - half, y, half, 56);
     addChannelButton.setEnabled ((int) cards.size() < MixSession::maxChannels);
+    addAuxButton.setEnabled ((int) auxCards.size() < MixSession::maxAux);
+    addAuxButton.setTooltip (addAuxButton.isEnabled() ? tr ("억스 채널: 마스터로 나가지 않고, 받는 마이크 채널의 입력으로만 쓰입니다")
+                                                      : trf ("억스 채널은 최대 {0}개입니다", MixSession::maxAux));   // greyed out: say why
     y += 56;
     cardsHolder.setSize (width, juce::jmax (1, y));
 }
@@ -581,8 +662,19 @@ void MainComponent::showDrawer (Drawer which)
     if (which != Drawer::chain && chainDrawer.getChain() != nullptr)
         chainDrawer.setChain (nullptr, {});   // a closed drawer keeps no chain: nothing deferred may reach one that is gone
 
+    // a side drawer narrows the cards and they grow taller (and shrink back when it closes): the card whose chain the drawer
+    // shows keeps its place on screen while it is in view - opening the drawer from a card near the end of the list, or
+    // closing it again, does not slide the card being worked on away. The master and FX chains have no card: nothing moves.
+    const juce::Component* anchor = drawer == Drawer::chain || which == Drawer::chain ? chainOwnerCard() : nullptr;
+    if (anchor != nullptr && ! viewport.getViewArea().intersects (anchor->getBounds()))
+        anchor = nullptr;
+    const int anchorOffset = anchor != nullptr ? anchor->getY() - viewport.getViewPositionY() : 0;
+
     drawer = which;
     resized();
+
+    if (anchor != nullptr)
+        viewport.setViewPosition (0, juce::jmax (0, anchor->getY() - anchorOffset));
 }
 
 void MainComponent::openChainFor (PluginChain* chain, const juce::String& title)
@@ -592,6 +684,7 @@ void MainComponent::openChainFor (PluginChain* chain, const juce::String& title)
 
     chainOwnerId = juce::Uuid::null();
     chainIsFx = false;
+    chainIsAux = false;
 
     for (const auto& c : document.getSession().channels)
         if (engine.getChannelChain (c.id) == chain)
@@ -604,8 +697,34 @@ void MainComponent::openChainFor (PluginChain* chain, const juce::String& title)
             chainIsFx = true;
         }
 
+    for (const auto& a : document.getSession().auxes)
+        if (engine.getAuxChain (a.id) == chain)
+        {
+            chainOwnerId = a.id;
+            chainIsAux = true;
+        }
+
     chainDrawer.setChain (chain, title);
-    showDrawer (Drawer::chain);
+    showDrawer (Drawer::chain);   // the owner card keeps its place on screen
+
+    if (const auto* ownerCard = chainOwnerCard())
+        revealCard (*ownerCard);   // and shows whole if it grew past the bottom
+}
+
+const juce::Component* MainComponent::chainOwnerCard() const
+{
+    if (chainOwnerId.isNull() || chainIsFx)
+        return nullptr;   // the master's and the FX channels' chains: no card in the list
+
+    for (const auto& card : cards)
+        if (card->getChannelId() == chainOwnerId)
+            return card.get();
+
+    for (const auto& card : auxCards)
+        if (card->getAuxId() == chainOwnerId)
+            return card.get();
+
+    return nullptr;
 }
 
 juce::String MainComponent::titleForChainOwner() const
@@ -618,12 +737,57 @@ juce::String MainComponent::titleForChainOwner() const
         if (const auto* f = document.getSession().findFx (chainOwnerId))
             return "FX " + f->name;
     }
+    else if (chainIsAux)
+    {
+        if (const auto* a = document.getSession().findAux (chainOwnerId))
+            return a->name;
+    }
     else if (const auto* ch = document.getSession().findChannel (chainOwnerId))
     {
         return ch->name;
     }
 
     return {};
+}
+
+void MainComponent::askRemoveAux (const juce::Uuid& id)
+{
+    juce::Component::SafePointer<MainComponent> safeThis (this);
+    juce::AlertWindow::showAsync (juce::MessageBoxOptions()
+                                      .withIconType (juce::MessageBoxIconType::QuestionIcon)
+                                      .withTitle (tr ("억스 채널 삭제"))
+                                      .withMessage (tr ("이 억스 채널과 그 플러그인 설정이 지워집니다.\n이 억스를 받던 마이크 채널은 같은 장치 입력을 직접 받습니다.\n삭제할까요?"))
+                                      .withButton (tr ("삭제"))
+                                      .withButton (tr ("취소")),
+                                  [safeThis, id] (int result)
+    {
+        if (safeThis == nullptr || result != 1)
+            return;
+
+        // its mics first take the device input it had (their saved input is the aux's), so none goes silent
+        auto& doc = safeThis->document;
+        std::vector<juce::Uuid> receivers;
+
+        for (const auto& c : doc.getSession().channels)
+            if (c.aux == id)
+                receivers.push_back (c.id);
+
+        for (const auto& r : receivers)
+            doc.setChannelAux (r, juce::Uuid::null());
+
+        doc.removeAux (id);
+    });
+}
+
+void MainComponent::revealCard (const juce::Component& card)
+{
+    const auto view = viewport.getViewArea();
+
+    if (view.contains (card.getBounds()))
+        return;
+
+    const int bottom = juce::jmax (0, cardsHolder.getHeight() - view.getHeight());
+    viewport.setViewPosition (0, juce::jlimit (0, bottom, juce::jmin (card.getY(), card.getBottom() + 12 - view.getHeight())));
 }
 
 void MainComponent::addPluginTo (PluginChain* chain, const juce::String& title, juce::Component* anchor)
@@ -665,6 +829,9 @@ void MainComponent::showPluginManager()
 
             for (const auto& c : session.channels)
                 count (c.chain);
+
+            for (const auto& a : session.auxes)
+                count (a.chain);
 
             for (const auto& f : session.fx)
                 count (f.chain);
@@ -873,6 +1040,9 @@ void MainComponent::timerCallback()
 
     for (auto& card : cards)
         card->pushMeter (engine.readChannelMeter (card->getChannelId()), card->getBounds().intersects (inView));
+
+    for (auto& card : auxCards)
+        card->pushMeter (engine.readAuxMeter (card->getAuxId()), card->getBounds().intersects (inView));
 
     for (const auto& f : document.getSession().fx)
     {

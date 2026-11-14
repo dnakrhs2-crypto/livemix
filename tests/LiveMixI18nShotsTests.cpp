@@ -450,6 +450,14 @@ struct Fixture
         document.setPluginGroupMember (model.channels[0].id, 1, mic.getSlot (2).state.slotId, true);
         document.setSend (model.channels[0].id, model.fx[0].id, 0.35, true);
         document.setSend (model.channels[1].id, model.fx[1].id, 0.5, false);
+        const auto auxId = document.addAux();   // mics 2 and 3 take it: their input boxes and the aux card show the routing
+        if (auto* auxChain = engine.getAuxChain (auxId))
+        {
+            add (*auxChain, "Demo gate", 106);
+            if (auto* aux = model.findAux (auxId)) aux->chain = auxChain->getStates();
+        }
+        document.setChannelAux (model.channels[1].id, auxId);
+        document.setChannelAux (model.channels[2].id, auxId);
 
         lm::ObsPluginActions obs;
         obs.roots = [root = scratch.directory]
@@ -535,6 +543,24 @@ void captureMain (Capture& shots, Fixture& f)
     {
         f.main->setSize (size.x, size.y); shots.take (*f.main, "main");
     }
+    // the end of the card list: the aux card under the mics, then the two add buttons
+    for (const auto size : { juce::Point<int> (1440, 900), { 1000, 760 }, { 760, 900 }, { 460, 1000 } })
+    {
+        f.main->setSize (size.x, size.y);
+        if (auto* cardsView = find<juce::Viewport> (*f.main)) cardsView->setViewPosition (0, 1 << 20);
+        shots.take (*f.main, "main_aux");
+        if (auto* cardsView = find<juce::Viewport> (*f.main)) cardsView->setViewPosition (0, 0);
+    }
+    if (auto* auxCard = find<lm::AuxCard> (*f.main))
+    {
+        f.main->setSize (1440, 900);
+        if (auto* cardsView = find<juce::Viewport> (*f.main)) cardsView->setViewPosition (0, 1 << 20);
+        auxCard->onOpenChain (auxCard->getAuxId());
+        shots.take (*f.main, "main_aux_chain");
+        if (auto* cardsView = find<juce::Viewport> (*f.main)) cardsView->setViewPosition (0, 0);
+    }
+    else
+        shots.test.expect (false, "The aux card must be on the main window");
     auto* card = find<lm::ChannelCard> (*f.main);
     auto* top = find<lm::TopBar> (*f.main);
     shots.test.expect (card != nullptr && top != nullptr);

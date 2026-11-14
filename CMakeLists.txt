@@ -315,7 +315,7 @@ if(WIN32)
 endif()
 target_sources(LiveMixCore INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/WebDavBackup.cpp)
 
-set(LIVEMIX_VERSION "0.23.0")   # LiveMix version (the Enqueue version is the project version); not a cache variable: a bump must reach existing build trees
+set(LIVEMIX_VERSION "0.24.0")   # LiveMix version (the Enqueue version is the project version); not a cache variable: a bump must reach existing build trees
 set(LIVEMIX_APPCAST_URL "" CACHE STRING "LiveMix WinSparkle appcast URL (empty disables update checks)")
 
 # The online backup's server account is built into the app from a JSON file that lives outside the repository
@@ -368,6 +368,7 @@ add_library(LiveMixUI INTERFACE)
 target_sources(LiveMixUI INTERFACE
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/ui/MainComponent.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/ui/TopBar.cpp
+    ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/ui/AuxCard.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/ui/ChannelCard.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/ui/MasterCard.cpp
     ${CMAKE_CURRENT_SOURCE_DIR}/livemix/src/ui/ChainDrawer.cpp

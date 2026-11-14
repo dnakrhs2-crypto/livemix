@@ -592,6 +592,38 @@ public:
     }
 };
 
+/** A numbered chip in a mic or aux card's chain summary: click opens the plugin's window. */
+struct ChainChip : public juce::TextButton
+{
+    ChainChip (int idx, const juce::String& text, bool bypassed) : juce::TextButton (text), index (idx), off (bypassed)
+    {
+        setWantsKeyboardFocus (false);
+    }
+
+    void paintButton (juce::Graphics& g, bool isMouseOverButton, bool) override
+    {
+        auto bounds = getLocalBounds().toFloat().reduced (0.5f);
+        g.setColour (isMouseOverButton ? Palette::slotBg.brighter (0.08f) : Palette::slotBg);
+        g.fillRoundedRectangle (bounds, Palette::controlRadius);
+        g.setColour (Palette::slotLine);
+        g.drawRoundedRectangle (bounds, Palette::controlRadius, 1.0f);
+
+        auto idx = getLocalBounds().reduced (6, 0).removeFromLeft (20).toFloat().withSizeKeepingCentre (20.0f, 20.0f);
+        g.setColour (off ? Palette::lampOff : Palette::accent);
+        g.fillRoundedRectangle (idx, 6.0f);
+        g.setColour (juce::Colours::white);
+        g.setFont (juce::Font (juce::FontOptions (pt (12.0f), juce::Font::bold)));
+        g.drawText (juce::String (index + 1), idx.toNearestInt(), juce::Justification::centred, false);
+
+        g.setColour (off ? Palette::dimText : Palette::text);
+        g.setFont (juce::Font (juce::FontOptions (pt (13.5f), juce::Font::bold)));
+        g.drawText (getButtonText(), getLocalBounds().withTrimmedLeft (32).withTrimmedRight (8), juce::Justification::centredLeft, true);
+    }
+
+    int index;
+    bool off;
+};
+
 /** The plugin chips of a chain: each as wide as its text (within limits), flowing left to right and wrapping.
     The rows they take are counted by the same flow that places them - a count guessed from the number of chips is
     wrong as soon as two wide chips no longer fit side by side. */

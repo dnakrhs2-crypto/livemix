@@ -14,7 +14,7 @@ namespace gocue::livemix
 struct PluginSet;
 
 /** The open session: the model, its file, the dirty flag, and every edit (each one also reaches the engine live).
-    Structure changes (channels / FX added, removed, reordered, a file loaded) fire onStructureChanged; value changes
+    Structure changes (channels / auxes / FX added, removed, reordered, input sources changed, a file loaded) fire onStructureChanged; value changes
     fire onValueChanged. Both on the message thread. */
 class MixDocument
 {
@@ -49,6 +49,9 @@ public:
     // structure
     juce::Uuid addChannel();
     void removeChannel (const juce::Uuid& id);
+    juce::Uuid addAux();   // null at maxAux
+    void removeAux (const juce::Uuid& id);   // receivers keep the missing source and become silent
+    bool setChannelAux (const juce::Uuid& channelId, const juce::Uuid& auxId);   // null: device; unknown non-null id: false
     juce::Uuid addFx();
     void removeFx (const juce::Uuid& id);
 
@@ -58,6 +61,9 @@ public:
     void setAllChannelsOn (bool on);
     void setChannelMuteGroup (const juce::Uuid& id, bool inGroup);   // the mark; MuteGroups applies the state
     void setChannelInput (const juce::Uuid& id, int first, bool stereo);
+    void renameAux (const juce::Uuid& id, const juce::String& name);
+    void setAuxOn (const juce::Uuid& id, bool on);
+    void setAuxInput (const juce::Uuid& id, int first, bool stereo);   // updates receivers' compatibility inputs, announces structure
     void setChannelOutput (const juce::Uuid& id, const MixOutput& output);
     void setChannelPan (const juce::Uuid& id, double pan);
     void setSend (const juce::Uuid& channelId, const juce::Uuid& fxId, double amount, bool pre);
@@ -88,7 +94,7 @@ public:
         (0: nothing happened) and, in 'switchedOff', which way they went. */
     int toggleGroupOnEveryChannel (int group, bool& switchedOff);
 
-    /** Replaces a live mic/FX/master chain using restore's atomic publication. Mic/master groups and mic sends
+    /** Replaces a live mic/aux/FX/master chain using restore's atomic publication. Mic/master groups and mic sends
         follow the set's optional data; all edits, including chain listener calls, announce once. */
     juce::StringArray applyPluginSet (PluginChain& chain, const PluginSet& set);
 

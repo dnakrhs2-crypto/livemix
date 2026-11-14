@@ -52,6 +52,26 @@ namespace
         manager.initialise (0, 0, &typeOnly, false);
     }
 
+    void copyDeviceInput (juce::AudioBuffer<float>& buffer, const float* const* inputs, int numInputs,
+                          int first, bool stereo, int offset, int n) noexcept
+    {
+        for (int side = 0; side < 2; ++side)
+        {
+            const int index = first + (stereo ? side : 0);
+            if (inputs != nullptr && index >= 0 && index < numInputs && inputs[index] != nullptr)
+                buffer.copyFrom (side, 0, inputs[index] + offset, n);
+            else
+                buffer.clear (side, 0, n);
+        }
+    }
+
+    float rampEnd (float start, float target, float step) noexcept
+    {
+        if (juce::approximatelyEqual (start, target))
+            return start;
+        return start < target ? juce::jmin (target, start + step) : juce::jmax (target, start - step);
+    }
+
     float clampedPan (double pan) noexcept
     {
         return (float) juce::jlimit (-1.0, 1.0, std::isfinite (pan) ? pan : 0.0);
@@ -551,6 +571,12 @@ void MixEngine::prepare (double newSampleRate, int newBlockSize)
     for (auto& c : channels)
         c->chain->prepare (newSampleRate, newBlockSize);
 
+    for (auto& a : auxNodes)
+    {
+        a->tap.setSize (2, newBlockSize, false, true, true);
+        a->chain->prepare (newSampleRate, newBlockSize);
+    }
+
     for (auto& f : fxNodes)
         f->chain->prepare (newSampleRate, newBlockSize);
 
@@ -666,43 +692,53 @@ void MixEngine::renderBlock (const float* const* inputs, int numInputs, float* c
         for (int f = 0; f < numFx; ++f)
             fxBus[(size_t) f].clear (0, n);
 
+        // Every aux finishes this chunk before any receiver reads its tap: no card-order dependency or block delay.
+        for (auto& node : auxNodes)
+        {
+            auto& tap = node->tap;
+            copyDeviceInput (tap, inputs, numInputs, node->inputFirst.load (std::memory_order_relaxed),
+                             node->stereo.load (std::memory_order_relaxed), offset, n);
+            const float target = node->on.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
+            const float start = node->onGain;
+            const float end = rampEnd (start, target, rampStepPerSample * (float) n);
+            node->onGain = end;
+            const bool fullyOff = start <= 0.0f && end <= 0.0f;
+            if (fullyOff && skipChainWhenOff.load (std::memory_order_relaxed))
+                node->chain->markProcessingSkipped();
+            else
+                node->chain->process (tap, n);
+
+            // Same as a mic: post-chain before the switch, or raw input when the sleeping chain is skipped.
+            node->meter.push (tap.getMagnitude (0, 0, n), tap.getMagnitude (1, 0, n));
+            if (fullyOff)
+                tap.clear (0, n);
+            else if (! juce::approximatelyEqual (start, 1.0f) || ! juce::approximatelyEqual (end, 1.0f))
+                tap.applyGainRamp (0, n, start, end);
+        }
+
         for (auto& node : channels)
         {
-            // the input: one device input on both sides, or a pair
-            const int first = node->inputFirst.load (std::memory_order_relaxed);
-            const bool stereo = node->stereo.load (std::memory_order_relaxed);
-            const float* in0 = (first >= 0 && first < numInputs && inputs != nullptr && inputs[first] != nullptr) ? inputs[first] + offset : nullptr;
-            const float* in1 = (stereo && first + 1 < numInputs && inputs != nullptr && inputs[first + 1] != nullptr) ? inputs[first + 1] + offset : nullptr;
-
-            if (in0 != nullptr)
-                chBuf.copyFrom (0, 0, in0, n);
-            else
-                chBuf.clear (0, 0, n);
-
-            if (stereo)
+            bool stereo = node->stereo.load (std::memory_order_relaxed);
+            if (node->fromAux)
             {
-                if (in1 != nullptr)
-                    chBuf.copyFrom (1, 0, in1, n);
+                if (node->aux != nullptr)
+                {
+                    stereo = node->aux->stereo.load (std::memory_order_relaxed);
+                    chBuf.copyFrom (0, 0, node->aux->tap, 0, 0, n);
+                    chBuf.copyFrom (1, 0, node->aux->tap, 1, 0, n);
+                }
                 else
-                    chBuf.clear (1, 0, n);
+                    chBuf.clear (0, n);
             }
             else
-            {
-                chBuf.copyFrom (1, 0, chBuf, 0, 0, n);
-            }
+                copyDeviceInput (chBuf, inputs, numInputs, node->inputFirst.load (std::memory_order_relaxed), stereo, offset, n);
 
             // mic ON/OFF: a short linear ramp (applied below, to the sends as well). Worked out first: a mic that is
             // fully off skips its chain when asked to - no plugin CPU for a mic nobody hears, like an archived track
             const float target = node->on.load (std::memory_order_relaxed) && ! node->muted.load (std::memory_order_relaxed)
                                      && ! allChannelsMuted.load (std::memory_order_relaxed) ? 1.0f : 0.0f;
             const float start = node->onGain;
-            float end = start;
-
-            if (! juce::approximatelyEqual (start, target))
-            {
-                const float step = rampStepPerSample * (float) n;
-                end = start < target ? juce::jmin (target, start + step) : juce::jmax (target, start - step);
-            }
+            const float end = rampEnd (start, target, rampStepPerSample * (float) n);
 
             node->onGain = end;
             const bool fullyOff = start <= 0.0f && end <= 0.0f;
@@ -938,6 +974,15 @@ MixEngine::ChannelNode* MixEngine::findChannel (const juce::Uuid& id) const noex
     return nullptr;
 }
 
+MixEngine::AuxNode* MixEngine::findAux (const juce::Uuid& id) const noexcept
+{
+    for (auto& a : auxNodes)
+        if (a->id == id)
+            return a.get();
+
+    return nullptr;
+}
+
 MixEngine::FxNode* MixEngine::findFx (const juce::Uuid& id) const noexcept
 {
     for (auto& f : fxNodes)
@@ -988,6 +1033,7 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
     // lock. A structural edit keeps the existing nodes (their live chains untouched) and builds only what was added.
     std::vector<std::unique_ptr<FxNode>> freshFx;
     std::vector<std::unique_ptr<ChannelNode>> freshChannels;
+    std::vector<std::unique_ptr<AuxNode>> freshAuxes;
     std::unique_ptr<PluginChain> freshMaster;
 
     for (const auto& f : session.fx)
@@ -1003,6 +1049,19 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
         freshFx.push_back (std::move (node));
     }
 
+    for (const auto& a : session.auxes)
+    {
+        if (! restoreChains && findAux (a.id) != nullptr)
+            continue;
+
+        auto node = std::make_unique<AuxNode>();
+        node->id = a.id;
+        node->onGain = a.on ? 1.0f : 0.0f;
+        node->tap.setSize (2, bs);
+        restore (*node->chain, a.chain);
+        freshAuxes.push_back (std::move (node));
+    }
+
     for (const auto& c : session.channels)
     {
         if (! restoreChains && findChannel (c.id) != nullptr)
@@ -1011,7 +1070,8 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
         auto node = std::make_unique<ChannelNode>();
         node->id = c.id;
         node->onGain = c.on && ! allChannelsMuted.load (std::memory_order_relaxed) ? 1.0f : 0.0f;   // every mic muted: starts silent
-        node->panCurrent = node->panTarget = channelPanGains (clampedPan (c.pan), c.stereo);
+        const auto* aux = c.aux.isNull() ? nullptr : session.findAux (c.aux);
+        node->panCurrent = node->panTarget = channelPanGains (clampedPan (c.pan), aux != nullptr ? aux->stereo : c.stereo);
         restore (*node->chain, c.chain);
         freshChannels.push_back (std::move (node));
     }
@@ -1025,14 +1085,38 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
     // the lists the graph switches to, sized now: the swap allocates nothing under the lock
     std::vector<std::unique_ptr<FxNode>> newFx, retiredFx;
     std::vector<std::unique_ptr<ChannelNode>> newChannels, retiredChannels;
+    std::vector<std::unique_ptr<AuxNode>> newAuxes, retiredAuxes;
     std::unique_ptr<PluginChain> retiredMaster;
     newFx.reserve (session.fx.size());
     newChannels.reserve (session.channels.size());
+    newAuxes.reserve (session.auxes.size());
     retiredFx.reserve (fxNodes.size() + freshFx.size());
     retiredChannels.reserve (channels.size() + freshChannels.size());
+    retiredAuxes.reserve (auxNodes.size() + freshAuxes.size());
 
     {
         const juce::ScopedLock sl (lock);
+
+        for (const auto& a : session.auxes)
+        {
+            std::unique_ptr<AuxNode> node;
+            for (auto& fresh : freshAuxes)
+                if (fresh != nullptr && fresh->id == a.id)
+                    node = std::move (fresh);
+            if (node == nullptr)
+                for (auto& old : auxNodes)
+                    if (old != nullptr && old->id == a.id)
+                        node = std::move (old);
+            if (node == nullptr)
+                continue;
+
+            node->on.store (a.on, std::memory_order_relaxed);
+            node->inputFirst.store (juce::jlimit (0, maxDeviceChannels - (a.stereo ? 2 : 1), a.inputFirst), std::memory_order_relaxed);
+            node->stereo.store (a.stereo, std::memory_order_relaxed);
+            newAuxes.push_back (std::move (node));
+            if ((int) newAuxes.size() >= maxAux)
+                break;
+        }
 
         // FX first: the channels' sends are indexed by FX position
         for (const auto& f : session.fx)
@@ -1089,6 +1173,12 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
             node->on.store (c.on, std::memory_order_relaxed);
             node->inputFirst.store (juce::jlimit (0, maxDeviceChannels - 1, c.inputFirst), std::memory_order_relaxed);
             node->stereo.store (c.stereo, std::memory_order_relaxed);
+            node->fromAux = ! c.aux.isNull();
+            node->aux = nullptr;
+            if (node->fromAux)
+                for (const auto& a : newAuxes)
+                    if (a->id == c.aux)
+                        node->aux = a.get();
             node->pan.store (clampedPan (c.pan), std::memory_order_relaxed);
             applyOutput (c.output, node->toMaster, node->direct, node->directFirst);
 
@@ -1127,6 +1217,14 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
         }
 
         // whatever was not moved over is retired (destroyed after the lock: plugin teardown is slow)
+        for (auto& old : auxNodes)
+            if (old != nullptr)
+                retiredAuxes.push_back (std::move (old));
+
+        for (auto& fresh : freshAuxes)
+            if (fresh != nullptr)
+                retiredAuxes.push_back (std::move (fresh));
+
         for (auto& old : fxNodes)
             if (old != nullptr)
                 retiredFx.push_back (std::move (old));
@@ -1144,6 +1242,7 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
                 retiredChannels.push_back (std::move (fresh));
 
         fxNodes.swap (newFx);
+        auxNodes.swap (newAuxes);
         channels.swap (newChannels);
     }
 
@@ -1153,6 +1252,10 @@ void MixEngine::applySession (const MixSession& session, juce::StringArray* erro
 bool MixEngine::captureLivePluginStates (MixSession& session) const
 {
     bool complete = true;
+
+    for (auto& a : session.auxes)
+        if (auto* node = findAux (a.id))
+            a.chain = node->chain->getStates (&complete);
 
     for (auto& c : session.channels)
         if (auto* node = findChannel (c.id))
@@ -1167,6 +1270,21 @@ bool MixEngine::captureLivePluginStates (MixSession& session) const
 }
 
 //==============================================================================
+void MixEngine::setAuxOn (const juce::Uuid& id, bool on)
+{
+    if (auto* node = findAux (id))
+        node->on.store (on, std::memory_order_relaxed);
+}
+
+void MixEngine::setAuxInput (const juce::Uuid& id, int first, bool stereo)
+{
+    if (auto* node = findAux (id))
+    {
+        node->inputFirst.store (juce::jlimit (0, maxDeviceChannels - (stereo ? 2 : 1), first), std::memory_order_relaxed);
+        node->stereo.store (stereo, std::memory_order_relaxed);
+    }
+}
+
 void MixEngine::setChannelOn (const juce::Uuid& id, bool on)
 {
     if (auto* node = findChannel (id))
@@ -1258,6 +1376,12 @@ PluginChain* MixEngine::getChannelChain (const juce::Uuid& id) const noexcept
     return node != nullptr ? node->chain.get() : nullptr;
 }
 
+PluginChain* MixEngine::getAuxChain (const juce::Uuid& id) const noexcept
+{
+    auto* node = findAux (id);
+    return node != nullptr ? node->chain.get() : nullptr;
+}
+
 PluginChain* MixEngine::getFxChain (const juce::Uuid& id) const noexcept
 {
     auto* node = findFx (id);
@@ -1269,6 +1393,9 @@ void MixEngine::forEachChain (const std::function<void (PluginChain&)>& fn) cons
     for (auto& c : channels)
         fn (*c->chain);
 
+    for (auto& a : auxNodes)
+        fn (*a->chain);
+
     for (auto& f : fxNodes)
         fn (*f->chain);
 
@@ -1278,6 +1405,12 @@ void MixEngine::forEachChain (const std::function<void (PluginChain&)>& fn) cons
 MixEngine::Meter MixEngine::readChannelMeter (const juce::Uuid& id)
 {
     auto* node = findChannel (id);
+    return node != nullptr ? node->meter.take() : Meter();
+}
+
+MixEngine::Meter MixEngine::readAuxMeter (const juce::Uuid& id)
+{
+    auto* node = findAux (id);
     return node != nullptr ? node->meter.take() : Meter();
 }
 

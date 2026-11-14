@@ -157,8 +157,9 @@ public:
         const auto bounds = juce::Rectangle<int> (0, 0, width, height).toFloat().reduced (0.5f);
         g.setColour (box.findColour (juce::ComboBox::backgroundColourId));
         g.fillRoundedRectangle (bounds, Palette::controlRadius);
-        g.setColour (box.hasKeyboardFocus (true) ? Palette::accent : Palette::line);
-        g.drawRoundedRectangle (bounds, Palette::controlRadius, 1.0f);
+        const bool marked = box.isColourSpecified (juce::ComboBox::outlineColourId);   // a mic's input box while an aux feeds it
+        g.setColour (box.hasKeyboardFocus (true) ? Palette::accent : marked ? box.findColour (juce::ComboBox::outlineColourId) : Palette::line);
+        g.drawRoundedRectangle (bounds, Palette::controlRadius, marked ? 2.0f : 1.0f);
 
         juce::Path arrow;
         const float x = (float) width - 16.0f, y = (float) height * 0.5f;

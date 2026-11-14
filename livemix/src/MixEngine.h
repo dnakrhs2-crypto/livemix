@@ -25,7 +25,8 @@ class MonitorOutput;
 
 /** The live graph driven by one capture device, with an optional independent monitor:
 
-        input(s) -> [pre tap] -> channel VST3 chain -> [post tap] -> mic ON/OFF ramp -> pan -> master bus / direct output pair
+        aux: device input(s) -> aux chain -> meter -> ON/OFF ramp -> stereo tap (no output or sends)
+        device input(s) or aux tap -> [pre tap] -> channel VST3 chain -> [post tap] -> mic ON/OFF ramp -> pan -> master bus / direct output pair
         FX channel: sum of sends -> FX chain -> return amount -> master bus / direct output pair
         master bus -> master chain -> main output pair
 
@@ -36,6 +37,7 @@ class MixEngine : private juce::AudioIODeviceCallback, private juce::Timer
 {
 public:
     static constexpr int maxChannels = MixSession::maxChannels;
+    static constexpr int maxAux = MixSession::maxAux;
     static constexpr int maxFx = MixSession::maxFx;
     static constexpr int maxDeviceChannels = MixSession::maxDeviceChannels;
     static constexpr double onOffRampSeconds = 0.005;
@@ -139,6 +141,8 @@ public:
     bool areAllChannelsMuted() const noexcept { return allChannelsMuted.load (std::memory_order_relaxed); }
     bool areAllFxMuted() const noexcept { return allFxMuted.load (std::memory_order_relaxed); }
     void setChannelInput (const juce::Uuid& id, int first, bool stereo);
+    void setAuxOn (const juce::Uuid& id, bool on);
+    void setAuxInput (const juce::Uuid& id, int first, bool stereo);
     void setChannelOutput (const juce::Uuid& id, const MixOutput& output);
     void setChannelPan (const juce::Uuid& id, double pan);
     void setSend (const juce::Uuid& channelId, const juce::Uuid& fxId, double amount, bool pre);
@@ -152,6 +156,7 @@ public:
     void setMasterOutput (int first);
 
     PluginChain* getChannelChain (const juce::Uuid& id) const noexcept;
+    PluginChain* getAuxChain (const juce::Uuid& id) const noexcept;
     PluginChain* getFxChain (const juce::Uuid& id) const noexcept;
     PluginChain& getMasterChain() noexcept { return *master.chain; }
     /** The LUFS meter of the master output (fed after the master chain, before the output pair). */
@@ -161,6 +166,7 @@ public:
     struct Meter { float left = 0.0f, right = 0.0f; };
     /** Peak since the last read (the UI holds and decays). */
     Meter readChannelMeter (const juce::Uuid& id);
+    Meter readAuxMeter (const juce::Uuid& id);
     Meter readFxMeter (const juce::Uuid& id);
     Meter readMasterMeter();
     Meter readCollabMeter (unsigned slotIndex) noexcept { return slotIndex < 2 ? collabMeters[slotIndex].take() : Meter {}; }
@@ -194,6 +200,18 @@ private:
         float current = 0.0f;   // audio thread: the level the last block ended on (a change ramps across the block)
     };
 
+    struct AuxNode
+    {
+        juce::Uuid id;
+        std::atomic<bool> on { true };
+        std::atomic<int> inputFirst { 0 };
+        std::atomic<bool> stereo { false };
+        std::unique_ptr<PluginChain> chain = std::make_unique<PluginChain>();
+        juce::AudioBuffer<float> tap;   // sized outside the callback; one prepared chunk, always two channels
+        float onGain = 1.0f;   // audio thread
+        MeterCell meter;
+    };
+
     struct ChannelNode
     {
         juce::Uuid id;
@@ -201,6 +219,8 @@ private:
         std::atomic<bool> muted { false };   // by the mic mute group: silent like OFF, the switch untouched
         std::atomic<int> inputFirst { 0 };
         std::atomic<bool> stereo { false };
+        bool fromAux = false;   // routing changes only under the graph lock
+        AuxNode* aux = nullptr; // resolved during applySession; null with fromAux means missing, hence silence
         std::atomic<float> pan { 0.0f };
         std::atomic<bool> toMaster { true }, direct { false };
         std::atomic<int> directFirst { 2 };
@@ -247,6 +267,7 @@ private:
     void timerCallback() override; // device lifecycle work, never posted from either audio callback
     int outputFirst (int requested) const noexcept;
     ChannelNode* findChannel (const juce::Uuid& id) const noexcept;
+    AuxNode* findAux (const juce::Uuid& id) const noexcept;
     FxNode* findFx (const juce::Uuid& id) const noexcept;
     void applyOutput (const MixOutput& output, std::atomic<bool>& toMaster, std::atomic<bool>& direct, std::atomic<int>& directFirst);
     static void addToOutputs (float* const* outputs, int numOutputs, int first, const juce::AudioBuffer<float>& source, int offset, int numSamples) noexcept;
@@ -277,6 +298,7 @@ private:
     juce::CriticalSection lock;   // the node lists and the buffers: held by the callback, taken briefly by edits
     HostTransport transport;     // outlives every chain's optional timing hook
     std::vector<std::unique_ptr<ChannelNode>> channels;
+    std::vector<std::unique_ptr<AuxNode>> auxNodes;
     std::vector<std::unique_ptr<FxNode>> fxNodes;
     MasterNode master;
     LoudnessMeter loudness;   // the master output, K-weighted: what the LUFS window shows
