@@ -28,10 +28,11 @@ export class FakeLiveMix extends EventEmitter {
   token = randomBytes(32).toString("base64url");
   behavior = { omitState: false, omitDelta: false, omitAck: false, omitPong: false, holdCommands: false, holdHello: false, split: false, version: 1, rejectAuth: false, helloInstance: "", sessionLoading: false,
     windowDelayMs: 0, commandMaxAgeMs: 1000 };
-  constructor({ pluginGroupsEverywhere = true, legacyFx = false, fxOn = !legacyFx, legacyMuteAll = legacyFx, muteAll = !legacyMuteAll, pluginGroupWindows = muteAll } = {}) {
+  constructor({ pluginGroupsEverywhere = true, legacyFx = false, fxOn = !legacyFx, legacyMuteAll = legacyFx, muteAll = !legacyMuteAll, pluginGroupWindows = muteAll, masterPluginGroups = false } = {}) {
     super(); this.pluginGroupsEverywhere = pluginGroupsEverywhere; this.fxOn = fxOn; this.legacyFx = legacyFx;
     this.muteAll = muteAll; this.legacyMuteAll = legacyMuteAll;
     this.pluginGroupWindows = pluginGroupWindows;
+    this.masterPluginGroups = masterPluginGroups;
   }
   async start() {
     this.appdata = await mkdtemp(join(tmpdir(), "livemix-sd-"));
@@ -39,6 +40,10 @@ export class FakeLiveMix extends EventEmitter {
     this.discoveryPath = join(this.directory, "discovery.json");
     await mkdir(this.directory, { recursive: true });
     this.snapshot = await fixture("initial-state"); this.helloFixture = await fixture("hello-ack");
+    if (this.masterPluginGroups) {
+      this.snapshot.state.master = { pluginGroups: [{ index: 1, off: false }, { index: 2, off: true }] };
+      this.helloFixture.capabilities.push("masterPluginGroups");
+    }
     if (this.legacyFx) for (const fx of this.snapshot.state.fx) delete fx.on;
     if (this.legacyMuteAll) delete this.snapshot.state.muteAll;
     this.helloFixture.capabilities = this.helloFixture.capabilities.filter(c => !["pluginGroupsEverywhere", "fxOn", "muteAll", "pluginGroupWindows"].includes(c));
@@ -139,6 +144,13 @@ export class FakeLiveMix extends EventEmitter {
       assert.equal(typeof a.on, "boolean");
       for (const c of state.channels) c.on = a.on;
       result = { on: a.on, count: state.channels.length };
+    } else if (m.command === "setMasterPluginGroupOff") {
+      if (!this.masterPluginGroups) { this.error(client, m.id, "UNKNOWN_COMMAND"); return; }
+      if (!Number.isInteger(a.index) || a.index < 1 || a.index > 5 || typeof a.off !== "boolean") { this.error(client, m.id, "INVALID_ARGUMENT"); return; }
+      const group = state.master.pluginGroups.find(g => g.index === a.index);
+      if (!group) { this.error(client, m.id, "PLUGIN_GROUP_NOT_FOUND"); return; }
+      group.off = a.off;
+      result = { index: a.index, off: a.off };
     } else if (m.command === "setPluginGroupOffEverywhere") {
       if (!this.pluginGroupsEverywhere) { this.error(client, m.id, "UNKNOWN_COMMAND"); return; }
       if (!Number.isInteger(a.index) || a.index < 1 || a.index > 5 || typeof a.off !== "boolean") { this.error(client, m.id, "INVALID_ARGUMENT"); return; }
@@ -241,7 +253,7 @@ export class FakeLiveMix extends EventEmitter {
       if (channels.length) changes.channels = channels;
       const fx = this.snapshot.state.fx.filter(fx => JSON.stringify(fx) !== JSON.stringify(c.published.state.fx.find(old => old.id === fx.id)));
       if (fx.length) changes.fx = fx;
-      for (const key of ["audio", "session", "muteGroups"]) if (JSON.stringify(c.published.state[key]) !== JSON.stringify(this.snapshot.state[key])) changes[key] = this.snapshot.state[key];
+      for (const key of ["audio", "session", "muteGroups", "master"]) if (JSON.stringify(c.published.state[key]) !== JSON.stringify(this.snapshot.state[key])) changes[key] = this.snapshot.state[key];
       const muteAll = Object.fromEntries(Object.entries(this.snapshot.state.muteAll ?? {}).filter(([key, value]) => c.published.state.muteAll?.[key] !== value));
       if (Object.keys(muteAll).length) changes.muteAll = muteAll;
       this.send(c, { ...this.ordering[4], ...this.context(), baseRevision: c.published.revision, changes });

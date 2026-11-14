@@ -68,6 +68,7 @@ private:
     /** The chain as it is, states included, under a name asked for. */
     void saveChainAsPreset();
     const MixChannel* owningChannel() const;
+    const MixMaster* owningMaster() const;
     void showSetMenu();
     void saveChainAsSet (const PluginSetEntry& entry);
     void loadSet (const PluginSet& set);

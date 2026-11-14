@@ -1,3 +1,29 @@
+# 1.6.0 검증 - 2026-11-14
+
+작업 폴더 `C:\Users\claude\gocue-mastergroups`(가지 `livemix-master-groups`), LiveMix 0.23.0과 같이 배포.
+패키지·hello 판 **1.6.0**, 생성 manifest **1.6.0.0**. 새 키 `com.gomtwigim.livemix.plugin-group-master`(플러그인 그룹 (마스터)).
+
+| 명령 (`streamdeck/`에서) | 결과 |
+|---|---|
+| `npm test` (빌드·타입 검사 포함) | 225개 통과, 실패 0 (새 `plugin-group-master.test.ts` 포함), 329.9초 |
+| `npm run validate` | manifest 그림 참조 42개 / 파일 84개, 묶음 그림 280개가 디자인 원본과 같음, ko/en 완비, CLI 검증 통과 |
+| `npm run pack` | `dist/com.gomtwigim.livemix.streamDeckPlugin` 280,682바이트, 항목 290개, manifest 1.6.0.0, SHA-256 `9759256258ed723c683049ed8532be2a1afb6f4c3cf4af13e030fd80283d5a24` |
+
+## 실제 LiveMix 0.23.0과 맞춘 확인
+
+- 도구 `C:\Users\claude\tools\claude_harness\mastergroups_1114\sdmaster_chain_check.mjs`(`e2e_master.py hidden`이 부름): 숨은 바탕화면의
+  LiveMix 0.23.0 작업본에 가짜 Stream Deck 호스트로 빌드한 플러그인을 올려 확인 9개 통과(`SDMASTER_CHAIN_OK`).
+  - 토글 키 끄기·다시 켜기(키 그림이 따라옴), 이미 켜진 그룹에 켜기 키(그대로·알림 없음), 끄기 키(그룹 2만), 없는 그룹 3('그룹 없음'·누르면 알림),
+    기존 '플러그인 그룹 (전체 마이크)' 키는 보컬 그룹만 바꾸고 마스터 그룹은 그대로, 토큰이 플러그인 기록에 없음.
+- 같은 실행에서 LiveMix 쪽 확인 16개 통과: 마스터 핫키와 마이크 그룹 핫키가 서로를 건드리지 않음, 마스터 카드 번호·그룹 창, 외부 제어,
+  창을 닫을 때 저장한 세션을 다시 열어도 마스터 그룹 그대로.
+- 실제 Stream Deck 기기·Stream Deck 앱으로는 재지 못했다.
+
+## 검토
+
+- 아스트라 검토 1바퀴(LiveMix와 같이). 플러그인 쪽 지적 없음: 타입 검사·기존 시험·자산 검사 통과, 외부 변화 반영·그룹 삭제와 재생성·다중 동작·
+  이 기능이 없는 LiveMix 차단을 확인했다. LiveMix 쪽 지적 1건(0.22.0 이하에서 열어 저장한 세션)은 세션 파일 문제라 이 문서 범위 밖.
+
 # 1.5.0 검증 - 2026-11-13
 
 작업 폴더 `C:\Users\claude\gocue-sdwin`(가지 `livemix-sd-plugwin`), LiveMix 0.22.0과 같이 배포.

@@ -383,6 +383,11 @@ ControlProtocol::ValidationResult ControlProtocol::validate (const juce::var& v)
         if (! a["on"].isBool()) return fail (Code::invalidArgument);
         c.args = SetAllChannelsOn { (bool) a["on"] };
     }
+    else if (name == "setMasterPluginGroupOff")
+    {
+        if (! integer (a["index"], 1, 5) || ! a["off"].isBool()) return fail (Code::invalidArgument);
+        c.args = SetMasterPluginGroupOff { (int) a["index"], (bool) a["off"] };
+    }
     else if (name == "setPluginGroupOffEverywhere")
     {
         if (! integer (a["index"], 1, 5) || ! a["off"].isBool()) return fail (Code::invalidArgument);
@@ -441,7 +446,7 @@ std::optional<ControlProtocol::Error> ControlProtocol::validateCommand (const Co
         if constexpr (std::is_same_v<T, SetChannelOn> || std::is_same_v<T, ToggleChannel>) return ! a.channelId.isNull();
         else if constexpr (std::is_same_v<T, ToggleFx> || std::is_same_v<T, SetFxOn>) return ! a.fxId.isNull();
         else if constexpr (std::is_same_v<T, SetPluginGroupOff>) return ! a.channelId.isNull() && a.index >= 1 && a.index <= 5;
-        else if constexpr (std::is_same_v<T, SetPluginGroupOffEverywhere>) return a.index >= 1 && a.index <= 5;
+        else if constexpr (std::is_same_v<T, SetPluginGroupOffEverywhere> || std::is_same_v<T, SetMasterPluginGroupOff>) return a.index >= 1 && a.index <= 5;
         else if constexpr (std::is_same_v<T, TogglePluginGroupWindows> || std::is_same_v<T, SetPluginGroupWindows>)
             return a.index >= 1 && a.index <= 5 && (! a.channelId || ! a.channelId->isNull());
         else if constexpr (std::is_same_v<T, SetSend>) return ! a.channelId.isNull() && ! a.fxId.isNull()
@@ -499,7 +504,7 @@ bool ControlProtocol::FxChanges::empty() const { return ! name && ! muteGroup &&
 bool ControlProtocol::Changes::empty() const
 {
     return ! sessionName && ! sessionDirty && ! audioRunning && ! micMuted && ! fxMuted
-        && ! allMicsMuted && ! allFxMuted && channels.empty() && fx.empty();
+        && ! allMicsMuted && ! allFxMuted && ! masterPluginGroups && channels.empty() && fx.empty();
 }
 
 juce::var ControlProtocol::toVar (const Projection& p)
@@ -510,6 +515,7 @@ juce::var ControlProtocol::toVar (const Projection& p)
     put (v, "session", session); put (v, "audio", audio); put (v, "muteGroups", muted);
     put (allMuted, "mic", p.allMicsMuted); put (allMuted, "fx", p.allFxMuted); put (v, "muteAll", allMuted);
     juce::Array<juce::var> channels, fx;
+    auto master = object(); put (master, "pluginGroups", pluginGroups (p.masterPluginGroups)); put (v, "master", master);
     for (const auto& c : p.channels)
     {
         auto item = object();
@@ -544,6 +550,10 @@ juce::var ControlProtocol::toVar (const Changes& p)
     if (p.allMicsMuted || p.allFxMuted)
     {
         auto m = object(); putOptional (m, "mic", p.allMicsMuted); putOptional (m, "fx", p.allFxMuted); put (v, "muteAll", m);
+    }
+    if (p.masterPluginGroups)
+    {
+        auto master = object(); put (master, "pluginGroups", pluginGroups (*p.masterPluginGroups)); put (v, "master", master);
     }
     if (! p.channels.empty())
     {
@@ -586,7 +596,7 @@ ControlProtocol::EncodeResult ControlProtocol::encode (const ServerMessage& mess
             put (v, "type", "helloAck"); put (v, "id", m.id); put (v, "instanceId", m.instanceId.toString());
             auto server = object(); put (server, "name", "LiveMix"); put (server, "version", m.serverVersion); put (v, "server", server);
             juce::Array<juce::var> capabilities;
-            for (const auto* name : { "stateDelta", "mic", "muteGroups", "pluginGroups", "sends", "pluginGroupsEverywhere", "fxOn", "muteAll", "pluginGroupWindows" }) capabilities.add (name);
+            for (const auto* name : { "stateDelta", "mic", "muteGroups", "pluginGroups", "sends", "pluginGroupsEverywhere", "fxOn", "muteAll", "pluginGroupWindows", "masterPluginGroups" }) capabilities.add (name);
             put (v, "capabilities", capabilities); put (v, "eventIntervalMs", 100); put (v, "heartbeatIntervalMs", 5000);
         }
         else if constexpr (std::is_same_v<T, State>)

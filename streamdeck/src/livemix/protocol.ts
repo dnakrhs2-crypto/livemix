@@ -37,8 +37,10 @@ export type Projection = {
   fx: Fx[];
   muteGroups: { mic: boolean; fx: boolean };
   muteAll: { mic: boolean; fx: boolean };
+  master: { pluginGroups: PluginGroup[] };
 };
 export type Changes = {
+  master?: Partial<Projection["master"]>;
   session?: Partial<Projection["session"]>;
   audio?: Partial<Projection["audio"]>;
   muteGroups?: Partial<Projection["muteGroups"]>;
@@ -68,6 +70,7 @@ export type EditCommand = MicCommand
   | { command: "setMuteAll"; args: { group: "mic" | "fx"; muted: boolean } }
   | { command: "setPluginGroupOff"; args: { channelId: string; index: number; off: boolean } }
   | { command: "setPluginGroupOffEverywhere"; args: { index: number; off: boolean } }
+  | { command: "setMasterPluginGroupOff"; args: { index: number; off: boolean } }
   | { command: "togglePluginGroupWindows"; args: { index: number; channelId?: string } }
   | { command: "setPluginGroupWindows"; args: { index: number; channelId?: string; open: boolean } }
   | { command: "setSend"; args: { channelId: string; fxId: string } & ({ amount: number; pre?: never } | { pre: boolean; amount?: never }) };
@@ -81,7 +84,7 @@ export function validAck(command: Command, ack: Ack): boolean {
     case "toggleChannel": case "setChannelOn": case "toggleFx": case "setFxOn": return typeof r.on === "boolean";
     case "setAllChannelsOn": return typeof r.on === "boolean" && isRevision(r.count) && r.count <= 8;
     case "toggleMuteGroup": case "setMuteGroup": case "toggleMuteAll": case "setMuteAll": return r.group === command.args.group && typeof r.muted === "boolean";
-    case "setPluginGroupOff": return r.index === command.args.index && typeof r.off === "boolean";
+    case "setPluginGroupOff": case "setMasterPluginGroupOff": return r.index === command.args.index && typeof r.off === "boolean";
     case "setPluginGroupOffEverywhere": return r.index === command.args.index && typeof r.off === "boolean" && Number.isInteger(r.count);
     case "togglePluginGroupWindows": case "setPluginGroupWindows": return !ack.changed && r.index === command.args.index && typeof r.open === "boolean" && isRevision(r.count);
     case "setSend": return typeof r.amount === "number" && Number.isFinite(r.amount) && r.amount >= 0 && r.amount <= 1 && typeof r.pre === "boolean";
@@ -115,6 +118,7 @@ export function validateProjection(value: unknown): Projection {
   const o = object(value), session = object(o.session), audio = object(o.audio), mute = object(o.muteGroups);
   const all = "muteAll" in o ? object(o.muteAll) : {};
   const p = {
+    master: { pluginGroups: "master" in o ? groups(object(o.master).pluginGroups) : [] },
     session: { name: str(session.name), dirty: bool(session.dirty) }, audio: { running: bool(audio.running) },
     muteAll: { mic: "mic" in all ? bool(all.mic) : false, fx: "fx" in all ? bool(all.fx) : false },
     muteGroups: { mic: bool(mute.mic), fx: bool(mute.fx) }, channels: list(o.channels, 8, channel, c => c.id), fx: list(o.fx, 4, fx, f => f.id)
@@ -124,6 +128,10 @@ export function validateProjection(value: unknown): Projection {
 }
 function changes(value: unknown): Changes {
   const o = object(value), result: Changes = {};
+  if (o.master !== undefined) {
+    const m = object(o.master); result.master = {};
+    if (m.pluginGroups !== undefined) result.master.pluginGroups = groups(m.pluginGroups);
+  }
   if (o.session !== undefined) {
     const s = object(o.session); result.session = {};
     if (s.name !== undefined) result.session.name = str(s.name);

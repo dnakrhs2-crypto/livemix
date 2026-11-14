@@ -22,6 +22,8 @@ namespace
     struct PrepareForeground { using Type = std::function<void()> MainComponent::*; friend Type member (PrepareForeground); };
     struct Register { using Type = void (MainComponent::*)(); friend Type member (Register); };
     struct Settings { using Type = void (MainComponent::*)(); friend Type member (Settings); };
+    struct Master { using Type = MasterCard MainComponent::*; friend Type member (Master); };
+    struct Groups { using Type = std::unique_ptr<PluginGroupsWindow> MainComponent::*; friend Type member (Groups); };
     struct Positions
     {
         using Type = std::map<const juce::AudioPluginInstance*, juce::Point<int>> PluginWindowManager::*;
@@ -33,6 +35,8 @@ namespace
     template struct Access<PrepareForeground, &MainComponent::preparePluginWindowForeground>;
     template struct Access<Register, &MainComponent::registerHotkeys>;
     template struct Access<Settings, &MainComponent::showSettingsDialog>;
+    template struct Access<Master, &MainComponent::masterCard>;
+    template struct Access<Groups, &MainComponent::pluginGroupsWindow>;
     template struct Access<Positions, &PluginWindowManager::positions>;
 
     struct TemporaryFolder
@@ -219,8 +223,9 @@ public:
             expectEquals (MainComponent::allMicsHotkeyId, 21);
             expectEquals (MainComponent::allFxHotkeyId, 22);
             expectEquals (MainComponent::firstPluginGroupWindowHotkeyId, 23);
-            expectEquals (MainComponent::lastHotkeyId, 27);
-            expectEquals (MainComponent::lastHotkeyId - MainComponent::firstPluginGroupWindowHotkeyId + 1, MixSession::maxPluginGroups);
+            expectEquals (MainComponent::firstMasterPluginGroupHotkeyId, 28);
+            expectEquals (MainComponent::lastHotkeyId, 32);
+            expectEquals (MainComponent::firstMasterPluginGroupHotkeyId - MainComponent::firstPluginGroupWindowHotkeyId, MixSession::maxPluginGroups);
             Rig rig;
             for (int group = 1; group <= 5; ++group)
                 rig.settings.setPluginGroupWindowHotkey (group, "Ctrl + Alt + Shift + F" + juce::String (group + 12));
@@ -842,6 +847,63 @@ public:
             }
         }
 
+        beginTest ("master card callback opens its groups; master hotkeys and microphone hotkeys stay independent");
+        {
+            Rig rig;
+            rig.document.addPluginGroup (rig.mic());
+            rig.add (rig.mic(), "Mic");
+            rig.join (rig.mic(), 0, 0);
+            auto& master = rig.engine.getMasterChain();
+            master.addPlugin (std::make_unique<WindowPlugin> ("Master"));
+            const auto masterSlot = master.getSlot (0).state.slotId;
+            rig.document.addMasterPluginGroup();
+            rig.document.setMasterPluginGroupMember (0, masterSlot, true);
+            auto& card = (*rig.main).*member (Master());
+            expect (bool (card.onOpenPluginGroups));
+            card.onOpenPluginGroups();
+            auto* window = ((*rig.main).*member (Groups())).get();
+            expect (window != nullptr && window->isVisible());
+            if (window != nullptr)
+            {
+                auto* content = window->getContentComponent();
+                expect (labelWithText (*content, trf ("{0} - 플러그인 그룹", tr ("마스터"))) != nullptr);
+                for (auto* child : content->getChildren())
+                    if (auto* button = dynamic_cast<juce::TextButton*> (child); button != nullptr && button->getButtonText() == tr ("이 그룹 끄기"))
+                        button->onClick();
+                expect (master.getSlot (0).bypassed.load());
+            }
+            rig.main->hotkeyPressed (MainComponent::firstMasterPluginGroupHotkeyId);
+            expect (! master.getSlot (0).bypassed.load());
+            expect (! rig.document.getSession().channels[0].pluginGroups[0].off);
+            rig.main->hotkeyPressed (4);   // existing microphone group 1
+            expect (rig.document.getSession().channels[0].pluginGroups[0].off);
+            expect (! master.getSlot (0).bypassed.load());
+            rig.main->hotkeyPressed (MainComponent::firstMasterPluginGroupHotkeyId);
+            rig.press();   // group-window hotkeys still open only microphone editors
+            expectEquals (rig.windows().getNumOpenWindows(), 1);
+            expect (editorFor (*master.getSlot (0).plugin) == nullptr);
+            rig.main->hotkeyPressed (MainComponent::lastHotkeyId);
+            expectEquals (rig.status().getText(), trf ("마스터에 플러그인 그룹 {0}이(가) 없습니다 (마스터 카드의 '플러그인 그룹'에서 만듭니다)", 5));
+            master.removePlugin (0);   // keep the member ID for a preset restore until the session is reloaded
+            expect (rig.document.getSession().master.pluginGroups[0].slots == std::vector<juce::Uuid> { masterSlot });
+        }
+
+        beginTest ("master hotkey settings persist independently");
+        {
+            TemporaryFolder folder;
+            {
+                LiveMixSettings settings (folder.path);
+                for (int group = 1; group <= 5; ++group)
+                {
+                    expect (settings.getMasterPluginGroupHotkey (group).isEmpty());
+                    settings.setMasterPluginGroupHotkey (group, "  Ctrl + Alt + F" + juce::String (group + 12) + "  ");
+                }
+            }
+            LiveMixSettings settings (folder.path);
+            for (int group = 1; group <= 5; ++group)
+                expectEquals (settings.getMasterPluginGroupHotkey (group), "Ctrl + Alt + F" + juce::String (group + 12));
+        }
+
         beginTest ("settings rows follow group 5 in order, capture keys into settings and reject keys used by other rows");
         {
             Rig rig;
@@ -855,6 +917,21 @@ public:
                 expect (previous != nullptr);
                 for (int group = 1; group <= 5; ++group)
                 {
+                    auto* label = labelWithText (*content, trf ("마스터 플러그인 그룹 {0}", group));
+                    auto* key = dynamic_cast<HotkeyButton*> (content->findChildWithID ("hotkey-master-group-" + juce::String (group)));
+                    expect (label != nullptr && key != nullptr);
+                    if (label == nullptr || key == nullptr) continue;
+                    if (previous != nullptr) expect (previous->getY() < label->getY());
+                    previous = label;
+                    const auto chosen = juce::KeyPress::createFromDescription ("Ctrl + Alt + F" + juce::String (group + 12));
+                    key->clicked(); key->keyPressed (chosen);
+                    expectEquals (rig.settings.getMasterPluginGroupHotkey (group), chosen.getTextDescription());
+                    expect (key->validate (juce::KeyPress::createFromDescription ("F9")).isNotEmpty());
+                    if (group > 1)
+                        expect (key->validate (juce::KeyPress::createFromDescription (rig.settings.getMasterPluginGroupHotkey (1))).isNotEmpty());
+                }
+                for (int group = 1; group <= 5; ++group)
+                {
                     auto* label = labelWithText (*content, trf ("플러그인 그룹 {0} 화면", juce::String (group)));
                     auto* key = dynamic_cast<HotkeyButton*> (content->findChildWithID ("hotkey-group-window-" + juce::String (group)));
                     expect (label != nullptr && key != nullptr);
@@ -863,6 +940,7 @@ public:
                     previous = label;
                     expect (key->validate (juce::KeyPress::createFromDescription ("F9")).isNotEmpty());
                     const auto description = "Ctrl + Alt + Shift + F" + juce::String (group + 12);
+                    expect (key->validate (juce::KeyPress::createFromDescription (rig.settings.getMasterPluginGroupHotkey (group))).isNotEmpty());
                     const auto chosen = juce::KeyPress::createFromDescription (description);
                     key->clicked();
                     key->keyPressed (chosen);

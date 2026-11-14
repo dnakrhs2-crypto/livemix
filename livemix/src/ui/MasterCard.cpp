@@ -37,6 +37,28 @@ MasterCard::MasterCard (MixDocument& doc) : document (doc)
     addPluginButton.setWantsKeyboardFocus (false);
     addPluginButton.onClick = [this] { if (onAddPlugin) onAddPlugin(); };
     addAndMakeVisible (addPluginButton);
+    pluginGroupsButton.setButtonText (tr ("플러그인 그룹"));
+    pluginGroupsButton.setTooltip (tr ("마스터의 플러그인 그룹: 체인의 플러그인 중 골라 그룹으로 묶어 두면, 아래 번호 한 번으로 그것들만 끄고 켭니다 (최대 5개)"));
+    pluginGroupsButton.setWantsKeyboardFocus (false);
+    pluginGroupsButton.onClick = [this] { if (onOpenPluginGroups) onOpenPluginGroups(); };
+    addAndMakeVisible (pluginGroupsButton);
+    styleCaption (groupsCaption, tr ("그룹 OFF"));
+    addAndMakeVisible (groupsCaption);
+    for (int i = 0; i < MixSession::maxPluginGroups; ++i)
+    {
+        auto b = std::make_unique<juce::TextButton> (juce::String (i + 1));
+        b->setWantsKeyboardFocus (false);
+        b->setColour (juce::TextButton::buttonOnColourId, Palette::dangerFill);   // white text on it reads
+        b->setColour (juce::TextButton::textColourOnId, juce::Colours::white);
+        b->onClick = [this, i]
+        {
+            const auto& groups = document.getSession().master.pluginGroups;
+            if (i < (int) groups.size())
+                document.setMasterPluginGroupOff (i, ! groups[(size_t) i].off);
+        };
+        addAndMakeVisible (*b);
+        groupButtons[(size_t) i] = std::move (b);
+    }
     lufsButton.setButtonText ("LUFS");
     lufsButton.setTooltip (tr ("마스터 출력의 라우드니스 미터 (LUFS, 트루 피크)"));
     lufsButton.setWantsKeyboardFocus (false);
@@ -254,9 +276,28 @@ void MasterCard::refresh()
         outputCombo.setColour (juce::ComboBox::textColourId, Palette::text);
     }
     obsToggle.setToggleState (document.getSession().master.sendToObs, juce::dontSendNotification);
+    refreshGroups();
     rebuildChain();
     resized();
 }
+
+void MasterCard::refreshGroups()
+{
+    const auto& groups = document.getSession().master.pluginGroups;
+    for (int i = 0; i < MixSession::maxPluginGroups; ++i)
+    {
+        auto& b = *groupButtons[(size_t) i];
+        const bool exists = i < (int) groups.size();
+        const bool off = exists && groups[(size_t) i].off;
+        b.setEnabled (exists);
+        b.setToggleState (off, juce::dontSendNotification);
+        b.setTooltip (exists ? trf ("플러그인 그룹 {0} ({1}개){2}", juce::String (i + 1), juce::String ((int) groups[(size_t) i].slots.size()),
+                                    (off ? tr (": 꺼져 있음 - 누르면 켭니다") : tr (": 누르면 이 그룹의 플러그인을 끕니다")))
+                             : trf ("플러그인 그룹 {0}은 아직 없습니다 ('플러그인 그룹'에서 만듭니다)", juce::String (i + 1)));
+    }
+}
+
+int MasterCard::groupRowWidth() const { return 112 + 8 + captionWidth (groupsCaption, 66) + 5 * 30 + 4 * 4; }
 
 void MasterCard::rebuildChain()
 {
@@ -337,7 +378,27 @@ MasterCard::ChainLayout MasterCard::measureChain (int width) const
     }
     result.open = { left + x, y + 1, 92, 30 };
     result.add = { left + x + 100, y + 1, 76, 30 };
-    result.bottom = y + ChipFlow::height;
+
+    // The plugin groups row 6 px under the buttons, as on the mic cards: [플러그인 그룹]  그룹 OFF  1 2 3 4 5. A column
+    // narrower than the whole row puts the caption and the numbers on a row of their own. It sits below the medium form's
+    // inline latency row (y 40-70), so it may use the whole column rather than the narrowed chip flow.
+    int groupsY = result.open.getBottom() + 6;
+    result.groups = { left, groupsY, 112, 30 };
+    int groupsX = left + 112 + 8;
+    if (columnWidth < groupRowWidth())
+    {
+        groupsX = left;
+        groupsY += 30 + 6;
+    }
+    const int captionW = captionWidth (groupsCaption, 66);
+    result.groupsCaption = juce::Rectangle<int> (groupsX, groupsY, captionW, 30).reduced (0, 2);
+    groupsX += captionW;
+    for (auto& number : result.groupNumbers)
+    {
+        number = juce::Rectangle<int> (groupsX, groupsY, 30, 30).reduced (0, 3);
+        groupsX += 30 + 4;
+    }
+    result.bottom = groupsY + 30 + 1;   // 1 px under the row, as it was under the buttons
     return result;
 }
 
@@ -383,6 +444,10 @@ void MasterCard::resized()
 
     for (auto& chip : chips)
         chip->setVisible (! strip);
+    pluginGroupsButton.setVisible (! strip);
+    groupsCaption.setVisible (! strip);
+    for (auto& number : groupButtons)
+        number->setVisible (! strip);
 
     if (strip)
     {
@@ -455,6 +520,10 @@ void MasterCard::resized()
     addPluginButton.setBounds (chain.add);
     for (size_t i = 0; i < chips.size(); ++i)
         chips[i]->setBounds (chain.chips[i]);
+    pluginGroupsButton.setBounds (chain.groups);
+    groupsCaption.setBounds (chain.groupsCaption);
+    for (size_t i = 0; i < groupButtons.size(); ++i)
+        groupButtons[i]->setBounds (chain.groupNumbers[i]);
 
     if (getWidth() < narrowBelow)
     {

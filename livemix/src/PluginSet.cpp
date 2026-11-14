@@ -270,24 +270,25 @@ std::array<PluginSetEntry, PluginSet::numSets> listPluginSets (const juce::File&
 
 PluginSet capturePluginSet (int number, const juce::String& source, const juce::String& savedAt,
                             std::vector<PluginSlotState> states, const MixChannel* channel,
-                            const std::vector<MixFx>& fx, bool includeSends, bool includeGroups)
+                            const std::vector<MixFx>& fx, bool includeSends, bool includeGroups, const MixMaster* master)
 {
     PluginSet set;
     set.number = number;
     set.source = source;
     set.savedAt = savedAt;
     set.plugins = std::move (states);
-    if (channel == nullptr)
+    const auto* groups = channel != nullptr ? &channel->pluginGroups : master != nullptr ? &master->pluginGroups : nullptr;
+    if (groups == nullptr)
         return set;
 
     if (includeGroups)
-        set.groups = channel->pluginGroups;
+        set.groups = *groups;
     else
         for (auto& state : set.plugins)
-            if (heldOff (channel->pluginGroups, state.slotId))
+            if (heldOff (*groups, state.slotId))
                 state.bypassed = false;
 
-    if (includeSends)
+    if (includeSends && channel != nullptr)
     {
         set.sends.emplace();
         for (const auto& target : fx)
@@ -353,15 +354,16 @@ PluginSetSendMatches matchPluginSetSends (const std::vector<PluginSetSend>& send
     return result;
 }
 
-PluginSetApplication planPluginSet (const PluginSet& set, const MixChannel* channel, const std::vector<MixFx>& fx)
+PluginSetApplication planPluginSet (const PluginSet& set, const MixChannel* channel, const std::vector<MixFx>& fx, const MixMaster* master)
 {
     PluginSetApplication result;
     result.plugins = set.plugins;
     if ((int) result.plugins.size() > PluginSet::maxPlugins)
         result.plugins.resize ((size_t) PluginSet::maxPlugins);
-    if (channel == nullptr)
+    const auto* oldGroups = channel != nullptr ? &channel->pluginGroups : master != nullptr ? &master->pluginGroups : nullptr;
+    if (oldGroups == nullptr)
     {
-        // FX / master: the groups stay behind, so a plugin only an OFF group had switched off comes back on
+        // FX: the groups stay behind, so a plugin only an OFF group had switched off comes back on
         // (the rule capture uses when groups are left out)
         if (set.groups)
             for (auto& state : result.plugins)
@@ -387,11 +389,11 @@ PluginSetApplication planPluginSet (const PluginSet& set, const MixChannel* chan
         }
     }
 
-    const auto& groups = result.groups ? *result.groups : channel->pluginGroups;
+    const auto& groups = result.groups ? *result.groups : *oldGroups;
     for (auto& state : result.plugins)
         if (heldOff (groups, state.slotId))
             state.bypassed = true;
-    if (set.sends)
+    if (set.sends && channel != nullptr)
         result.sends = matchPluginSetSends (*set.sends, fx);
     return result;
 }

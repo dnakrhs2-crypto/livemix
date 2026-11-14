@@ -37,6 +37,56 @@ namespace
 
     juce::String idText (const juce::Uuid& id) { return id.isNull() ? juce::String() : id.toString(); }
 
+    juce::var pluginGroupsToVar (const std::vector<MixPluginGroup>& pluginGroups)
+    {
+        juce::Array<juce::var> groups;
+
+        for (const auto& g : pluginGroups)
+        {
+            auto* group = new juce::DynamicObject();
+            juce::Array<juce::var> members;
+
+            for (const auto& slotId : g.slots)
+                members.add (idText (slotId));
+
+            group->setProperty ("slots", members);
+            group->setProperty ("off", g.off);
+            groups.add (group);
+        }
+
+        return groups;
+    }
+
+    std::vector<MixPluginGroup> pluginGroupsFromVar (const juce::var& value)
+    {
+        std::vector<MixPluginGroup> result;
+        if (const auto* groups = value.getArray())
+            for (const auto& gv : *groups)
+                if (gv.getDynamicObject() != nullptr)
+                {
+                    MixPluginGroup g;
+                    g.off = (bool) gv.getProperty ("off", false);
+                    if (const auto* members = gv.getProperty ("slots", juce::var()).getArray())
+                        for (const auto& mv : *members)
+                            g.slots.push_back (juce::Uuid (mv.toString()));
+                    result.push_back (std::move (g));
+                }
+        return result;
+    }
+
+    void cleanGroupMembers (std::vector<MixPluginGroup>& groups, const std::vector<PluginSlotState>& chain)
+    {
+        for (auto& group : groups)
+        {
+            std::vector<juce::Uuid> kept;
+            for (const auto& id : group.slots)
+                if (! id.isNull() && std::find (kept.begin(), kept.end(), id) == kept.end()
+                    && std::any_of (chain.begin(), chain.end(), [&] (const auto& slot) { return slot.slotId == id; }))
+                    kept.push_back (id);
+            group.slots = std::move (kept);
+        }
+    }
+
     double finiteOr (double value, double fallback) { return std::isfinite (value) ? value : fallback; }
 }
 
@@ -173,6 +223,8 @@ void MixSession::sanitise()
         capChain (f.chain);
 
     capChain (master.chain);
+    if ((int) master.pluginGroups.size() > maxPluginGroups)
+        master.pluginGroups.resize ((size_t) maxPluginGroups);
 
     std::set<juce::String> seen;
 
@@ -300,22 +352,7 @@ juce::String MixSession::toJson() const
         obj->setProperty ("sends", sends);
         obj->setProperty ("output", outputToVar (c.output));
 
-        juce::Array<juce::var> groups;
-
-        for (const auto& g : c.pluginGroups)
-        {
-            auto* group = new juce::DynamicObject();
-            juce::Array<juce::var> members;
-
-            for (const auto& slotId : g.slots)
-                members.add (idText (slotId));
-
-            group->setProperty ("slots", members);
-            group->setProperty ("off", g.off);
-            groups.add (group);
-        }
-
-        obj->setProperty ("pluginGroups", groups);
+        obj->setProperty ("pluginGroups", pluginGroupsToVar (c.pluginGroups));
         channelArray.add (obj);
     }
 
@@ -341,6 +378,7 @@ juce::String MixSession::toJson() const
 
     auto* m = new juce::DynamicObject();
     m->setProperty ("chain", ProjectSerializer::pluginSlotsToVar (master.chain));
+    m->setProperty ("pluginGroups", pluginGroupsToVar (master.pluginGroups));
     m->setProperty ("outputFirst", master.outputFirst);
     m->setProperty ("sendToObs", master.sendToObs);
     root->setProperty ("master", m);
@@ -458,19 +496,7 @@ juce::Result MixSession::fromJson (const juce::String& json, MixSession& out, ju
 
             c.output = outputFromVar (item.getProperty ("output", juce::var()), MixOutput());
 
-            if (const auto* groups = item.getProperty ("pluginGroups", juce::var()).getArray())
-                for (const auto& gv : *groups)
-                    if (gv.getDynamicObject() != nullptr)
-                    {
-                        MixPluginGroup g;
-                        g.off = (bool) gv.getProperty ("off", false);
-
-                        if (const auto* members = gv.getProperty ("slots", juce::var()).getArray())
-                            for (const auto& mv : *members)
-                                g.slots.push_back (juce::Uuid (mv.toString()));
-
-                        c.pluginGroups.push_back (std::move (g));
-                    }
+            c.pluginGroups = pluginGroupsFromVar (item.getProperty ("pluginGroups", juce::var()));
 
             s.channels.push_back (std::move (c));
         }
@@ -479,6 +505,7 @@ juce::Result MixSession::fromJson (const juce::String& json, MixSession& out, ju
     if (const auto m = root.getProperty ("master", juce::var()); m.getDynamicObject() != nullptr)
     {
         s.master.chain = ProjectSerializer::pluginSlotsFromVar (m.getProperty ("chain", juce::var()));
+        s.master.pluginGroups = pluginGroupsFromVar (m.getProperty ("pluginGroups", juce::var()));
         s.master.outputFirst = (int) m.getProperty ("outputFirst", 0);
         s.master.sendToObs = version >= 4 && (bool) m.getProperty ("sendToObs", false);
     }
@@ -496,21 +523,8 @@ juce::Result MixSession::fromJson (const juce::String& json, MixSession& out, ju
     s.sanitise();
 
     for (auto& c : s.channels)
-        for (auto& g : c.pluginGroups)
-        {
-            std::vector<juce::Uuid> kept;
-
-            for (const auto& slotId : g.slots)
-            {
-                const bool inChain = std::any_of (c.chain.begin(), c.chain.end(), [&slotId] (const PluginSlotState& slot) { return slot.slotId == slotId; });
-                const bool again = std::find (kept.begin(), kept.end(), slotId) != kept.end();
-
-                if (! slotId.isNull() && inChain && ! again)
-                    kept.push_back (slotId);
-            }
-
-            g.slots = std::move (kept);
-        }
+        cleanGroupMembers (c.pluginGroups, c.chain);
+    cleanGroupMembers (s.master.pluginGroups, s.master.chain);
 
     if (warnings != nullptr && chainOverLimit)
         warnings->add (tr ("체인에 플러그인이 16개보다 많아 뒤의 것은 뺐습니다"));

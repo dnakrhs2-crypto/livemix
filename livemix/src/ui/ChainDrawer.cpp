@@ -22,17 +22,19 @@ namespace
     class SetSaveAlert : public juce::AlertWindow
     {
     public:
-        SetSaveAlert (const juce::String& title, const juce::String& message, const MixChannel* channel, bool hasFx)
+        SetSaveAlert (const juce::String& title, const juce::String& message, const MixChannel* channel, bool hasFx, const MixMaster* master)
             : AlertWindow (title, message, juce::MessageBoxIconType::NoIcon)
         {
-            if (channel != nullptr)
+            if (channel != nullptr || master != nullptr)
             {
+                const auto& pluginGroups = channel != nullptr ? channel->pluginGroups : master->pluginGroups;
                 sends.setButtonText (hasFx ? tr ("FX 센드값도 저장") : tr ("FX 센드값도 저장 (FX 채널 없음)"));
-                groups.setButtonText (! channel->pluginGroups.empty() ? tr ("플러그인 그룹도 저장") : tr ("플러그인 그룹도 저장 (그룹 없음)"));
+                groups.setButtonText (! pluginGroups.empty() ? tr ("플러그인 그룹도 저장") : tr ("플러그인 그룹도 저장 (그룹 없음)"));
                 sends.setEnabled (hasFx);
-                groups.setEnabled (! channel->pluginGroups.empty());
+                groups.setEnabled (! pluginGroups.empty());
                 for (auto* button : { &sends, &groups })
                 {
+                    if (button == &sends && channel == nullptr) continue;
                     button->setToggleState (true, juce::dontSendNotification);
                     button->setSize (360, 30);
                     addCustomComponent (button);
@@ -728,12 +730,13 @@ void ChainDrawer::applyPreset (const PluginPreset& preset, bool replace)
     // either restore or append publishes an instance, including a deleted member whose slot ID returns.
     const auto applyOffGroups = [&] (PluginSlotState& state)
     {
-        for (const auto& channel : document.getSession().channels)
-            if (engine.getChannelChain (channel.id) == chain)
-                for (const auto& group : channel.pluginGroups)
-                    if (group.off)
-                        if (std::find (group.slots.begin(), group.slots.end(), state.slotId) != group.slots.end())
-                            state.bypassed = true;
+        const auto* channel = owningChannel();
+        const auto* master = owningMaster();
+        const auto* groups = channel != nullptr ? &channel->pluginGroups : master != nullptr ? &master->pluginGroups : nullptr;
+        if (groups != nullptr)
+            for (const auto& group : *groups)
+                if (group.off && std::find (group.slots.begin(), group.slots.end(), state.slotId) != group.slots.end())
+                    state.bypassed = true;
     };
 
     if (replace)
@@ -865,6 +868,11 @@ const MixChannel* ChainDrawer::owningChannel() const
     return nullptr;
 }
 
+const MixMaster* ChainDrawer::owningMaster() const
+{
+    return chain == &document.getEngine().getMasterChain() ? &document.getSession().master : nullptr;
+}
+
 void ChainDrawer::showSetMenu()
 {
     if (chain == nullptr)
@@ -907,7 +915,7 @@ void ChainDrawer::saveChainAsSet (const PluginSetEntry& entry)
         message += trf ("\n\n{0}에 있던 것은 지워집니다:\n{1}", label, pluginLines (entry.set));
     else if (entry.state == PluginSetEntry::State::unreadable)
         message += trf ("\n\n{0}의 읽을 수 없는 파일은 지워집니다.", label);
-    auto* alert = new SetSaveAlert (trf ("{0}에 저장", label), message, owningChannel(), ! document.getSession().fx.empty());
+    auto* alert = new SetSaveAlert (trf ("{0}에 저장", label), message, owningChannel(), ! document.getSession().fx.empty(), owningMaster());
     juce::Component::SafePointer<ChainDrawer> safeThis (this);
     const int forRevision = revision;
     const auto generation = document.getSessionGeneration();
@@ -938,7 +946,7 @@ void ChainDrawer::saveChainAsSet (const PluginSetEntry& entry)
         }
 
         const auto set = capturePluginSet (number, safeThis->ownerTitle, juce::Time::getCurrentTime().toISO8601 (true),
-            std::move (states), safeThis->owningChannel(), safeThis->document.getSession().fx, alert->includeSends(), alert->includeGroups());
+            std::move (states), safeThis->owningChannel(), safeThis->document.getSession().fx, alert->includeSends(), alert->includeGroups(), safeThis->owningMaster());
         if (const auto saved = set.save (PluginSet::fileFor (number, PluginSet::defaultFolder())); saved.failed())
         {
             juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, tr ("세트를 저장하지 못했습니다"), saved.getErrorMessage(), tr ("확인"));
@@ -967,6 +975,8 @@ void ChainDrawer::loadSet (const PluginSet& set)
         message += set.sends && set.groups ? tr ("\n\nFX 센드값과 플러그인 그룹도 세트에 저장된 값으로 바뀝니다.")
                  : set.sends ? tr ("\n\nFX 센드값도 세트에 저장된 값으로 바뀝니다.")
                              : tr ("\n\n플러그인 그룹도 세트에 저장된 값으로 바뀝니다.");
+    else if (owningMaster() != nullptr && set.groups)
+        message += tr ("\n\n플러그인 그룹도 세트에 저장된 값으로 바뀝니다.");
     auto* alert = new juce::AlertWindow (trf ("{0} 불러오기", label), message, juce::MessageBoxIconType::QuestionIcon);
     alert->addButton (tr ("바꾸기"), 1, juce::KeyPress (juce::KeyPress::returnKey));
     alert->addButton (tr ("취소"), 0, juce::KeyPress (juce::KeyPress::escapeKey));
@@ -985,13 +995,15 @@ void ChainDrawer::applySet (const PluginSet& set)
 {
     if (chain == nullptr)
         return;
-    const bool pluginsOnly = owningChannel() == nullptr && (set.sends || set.groups);
+    const auto suffix = owningMaster() != nullptr
+        ? (set.sends ? tr (" (마스터에는 FX 센드값을 넣지 않았습니다)") : juce::String())
+        : (owningChannel() == nullptr && (set.sends || set.groups) ? tr (" (FX 체인에는 플러그인만 넣었습니다)") : juce::String());
     const auto errors = document.applyPluginSet (*chain, set);
     refresh();
     if (onChainEdited)
         onChainEdited();
     if (onStatus)
-        onStatus (trf ("세트 {0} 불러옴: {1}{2}", juce::String (set.number), set.summary(), (pluginsOnly ? tr (" (FX·마스터 체인에는 플러그인만 넣었습니다)") : juce::String())), false);
+        onStatus (trf ("세트 {0} 불러옴: {1}{2}", juce::String (set.number), set.summary(), suffix), false);
     if (! errors.isEmpty())
         juce::AlertWindow::showMessageBoxAsync (juce::MessageBoxIconType::WarningIcon, tr ("세트의 일부를 넣지 못했습니다"), errors.joinIntoString ("\n"), tr ("확인"));
 }

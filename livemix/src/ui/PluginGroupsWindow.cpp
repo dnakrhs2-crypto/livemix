@@ -223,23 +223,28 @@ private:
         Content& owner;
     };
 
-    const MixChannel* channel() const { return document.getSession().findChannel (channelId); }
+    const std::vector<MixPluginGroup>* pluginGroups() const
+    {
+        if (channelId.isNull()) return &document.getSession().master.pluginGroups;
+        if (const auto* channel = document.getSession().findChannel (channelId)) return &channel->pluginGroups;
+        return nullptr;
+    }
 
     bool isMember (const juce::Uuid& slotId) const
     {
-        const auto* c = channel();
+        const auto* c = pluginGroups();
 
-        if (c == nullptr || selectedGroup < 0 || selectedGroup >= (int) c->pluginGroups.size())
+        if (c == nullptr || selectedGroup < 0 || selectedGroup >= (int) (*c).size())
             return false;
 
-        const auto& members = c->pluginGroups[(size_t) selectedGroup].slots;
+        const auto& members = (*c)[(size_t) selectedGroup].slots;
         return std::find (members.begin(), members.end(), slotId) != members.end();
     }
 
     /** What is shown, read again from the session and the live chain. */
     void doRefresh()
     {
-        const auto* c = channel();
+        const auto* c = pluginGroups();
 
         if (c == nullptr)
         {
@@ -249,18 +254,21 @@ private:
             return;
         }
 
-        title.setText (trf ("{0} - 플러그인 그룹", c->name), juce::dontSendNotification);
+        title.setText (trf ("{0} - 플러그인 그룹", channelId.isNull() ? tr ("마스터") : document.getSession().findChannel (channelId)->name), juce::dontSendNotification);
+        // the numbers light up under the card of the chain the window edits
+        note.setText (channelId.isNull() ? tr ("그룹을 만들면 마스터 카드의 체인 밑에 그 번호가 켜집니다. 번호를 누르면 그룹에 넣은 플러그인이 한꺼번에 꺼지고 (번호가 빨갛게), 다시 누르면 켜집니다. 그룹에 없는 플러그인은 그대로입니다.")
+                                         : tr ("그룹을 만들면 마이크 카드의 체인 밑에 그 번호가 켜집니다. 번호를 누르면 그룹에 넣은 플러그인이 한꺼번에 꺼지고 (번호가 빨갛게), 다시 누르면 켜집니다. 그룹에 없는 플러그인은 그대로입니다."), juce::dontSendNotification);
 
         groups.clear();
 
-        for (const auto& g : c->pluginGroups)
+        for (const auto& g : (*c))
             groups.push_back ({ (int) g.slots.size(), g.off });
 
         const int wanted = juce::jmin (selectedGroup, (int) groups.size() - 1);   // updateContent() below may report the old row gone (selectedRowsChanged (-1)): the row meant is put back after it
 
         slots.clear();
 
-        if (auto* chain = document.getEngine().getChannelChain (channelId))
+        if (auto* chain = channelId.isNull() ? &document.getEngine().getMasterChain() : document.getEngine().getChannelChain (channelId))
             for (int i = 0; i < chain->getNumSlots(); ++i)
             {
                 const auto& slot = chain->getSlot (i);
@@ -283,13 +291,13 @@ private:
 
     void buttonsFollow()
     {
-        const auto* c = channel();
-        const bool have = c != nullptr && selectedGroup >= 0 && selectedGroup < (int) c->pluginGroups.size();
-        addGroupButton.setEnabled (c != nullptr && (int) c->pluginGroups.size() < MixSession::maxPluginGroups);
+        const auto* c = pluginGroups();
+        const bool have = c != nullptr && selectedGroup >= 0 && selectedGroup < (int) (*c).size();
+        addGroupButton.setEnabled (c != nullptr && (int) (*c).size() < MixSession::maxPluginGroups);
         removeGroupButton.setEnabled (have);
         offButton.setEnabled (have);   // like the card's number: a group that exists can be switched, members or not
-        offButton.setButtonText (have && c->pluginGroups[(size_t) selectedGroup].off ? tr ("이 그룹 켜기") : tr ("이 그룹 끄기"));
-        offButton.setColour (juce::TextButton::buttonColourId, have && c->pluginGroups[(size_t) selectedGroup].off ? Palette::danger : Palette::card2);
+        offButton.setButtonText (have && (*c)[(size_t) selectedGroup].off ? tr ("이 그룹 켜기") : tr ("이 그룹 끄기"));
+        offButton.setColour (juce::TextButton::buttonColourId, have && (*c)[(size_t) selectedGroup].off ? Palette::danger : Palette::card2);
         membersCaption.setText (have ? trf ("플러그인 그룹 {0}에 넣을 플러그인 (지금 VST3 체인, 눌러서 넣거나 뺌)", juce::String (selectedGroup + 1))
                                      : tr ("먼저 왼쪽에서 그룹을 고르거나 만드세요"), juce::dontSendNotification);
     }
@@ -328,12 +336,12 @@ private:
 
     void toggleOff()
     {
-        const auto* c = channel();
+        const auto* c = pluginGroups();
 
-        if (c == nullptr || selectedGroup < 0 || selectedGroup >= (int) c->pluginGroups.size())
+        if (c == nullptr || selectedGroup < 0 || selectedGroup >= (int) (*c).size())
             return;
 
-        document.setPluginGroupOff (channelId, selectedGroup, ! c->pluginGroups[(size_t) selectedGroup].off);
+        document.setPluginGroupOff (channelId, selectedGroup, ! (*c)[(size_t) selectedGroup].off);
     }
 
     void toggleMember (int row)

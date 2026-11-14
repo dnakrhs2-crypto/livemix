@@ -61,7 +61,7 @@ std::array<PluginSetEntry, PluginSet::numSets> listPluginSets (const juce::File&
     Without groups, only the bypasses attributable to OFF groups are released. */
 PluginSet capturePluginSet (int number, const juce::String& source, const juce::String& savedAt,
                             std::vector<PluginSlotState> states, const MixChannel* channel,
-                            const std::vector<MixFx>& fx, bool includeSends, bool includeGroups);
+                            const std::vector<MixFx>& fx, bool includeSends, bool includeGroups, const MixMaster* master = nullptr);
 
 struct PluginSetSendMatches
 {
@@ -79,8 +79,9 @@ struct PluginSetApplication
     PluginSetSendMatches sends;
 };
 
-/** Pure application plan. Null channel means FX/master: plugins only. New groups admit only members
+/** Pure application plan. Null channel and master means FX: plugins only. New groups admit only members
     in the incoming chain, once per group, and at most five groups. Absent groups retain the old groups. */
-PluginSetApplication planPluginSet (const PluginSet& set, const MixChannel* channel, const std::vector<MixFx>& fx);
+PluginSetApplication planPluginSet (const PluginSet& set, const MixChannel* channel, const std::vector<MixFx>& fx,
+                                    const MixMaster* master = nullptr);
 
 } // namespace gocue::livemix

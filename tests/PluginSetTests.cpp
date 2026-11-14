@@ -69,6 +69,41 @@ public:
 
     void runTest() override
     {
+        beginTest ("group sets transfer from mic to master and back, while FX receives plugins only");
+        {
+            MixEngine engine;
+            engine.prepare (48000.0, 64);
+            MixDocument doc (engine);
+            doc.applyToEngine();
+            auto set = sampleSet();
+            set.groups = std::vector<MixPluginGroup> { { { set.plugins[0].slotId }, true } };
+            set.sends = std::vector<PluginSetSend> { { doc.getSession().fx[0].id, "FX", 0.5, true } };
+            auto& master = engine.getMasterChain();
+            DirtyChainListener listener (doc);
+            master.setListener (&listener);
+            doc.applyPluginSet (master, set);
+            expectEquals ((int) doc.getSession().master.pluginGroups.size(), 1);
+            expect (master.getSlot (0).bypassed.load());
+            expectWithinAbsoluteError (doc.getSession().channels[0].sends[0].amount, 0.0, 1e-9);
+            const auto captured = capturePluginSet (1, "Master", "", master.getStates(), nullptr, doc.getSession().fx, true, true, &doc.getSession().master);
+            expect (captured.groups.has_value() && ! captured.sends.has_value());
+            const auto withoutGroups = capturePluginSet (1, "Master", "", master.getStates(), nullptr, doc.getSession().fx, false, false, &doc.getSession().master);
+            expect (! withoutGroups.plugins[0].bypassed && withoutGroups.plugins[1].bypassed);
+            auto* mic = engine.getChannelChain (doc.getSession().channels[0].id);
+            doc.applyPluginSet (*mic, captured);
+            expect (doc.getSession().channels[0].pluginGroups[0].off && mic->getSlot (0).bypassed.load());
+            auto* fx = engine.getFxChain (doc.getSession().fx[0].id);
+            doc.applyPluginSet (*fx, captured);
+            expect (! fx->getSlot (0).bypassed.load() && fx->getSlot (1).bypassed.load());
+            doc.applyPluginSet (master, withoutGroups);
+            expect (doc.getSession().master.pluginGroups[0].off && master.getSlot (0).bypassed.load());
+            auto emptyGroups = captured;
+            emptyGroups.groups = std::vector<MixPluginGroup>();
+            doc.applyPluginSet (master, emptyGroups);
+            expect (doc.getSession().master.pluginGroups.empty());
+            master.setListener (nullptr);
+        }
+
         beginTest ("JSON round trips plugins alone, sends, groups, and both without losing any slot data");
         for (int flags = 0; flags < 4; ++flags)
         {
@@ -474,7 +509,7 @@ public:
             expect (! plan.groups && plan.sends.sends.empty());
             expect (! plan.plugins[0].bypassed && plan.plugins[1].bypassed);
 
-            // FX / master: groups do not come along, so an OFF group's hold on its members is released there
+            // FX: groups do not come along, so an OFF group's hold on its members is released there
             auto fxSet = sampleSet();
             fxSet.plugins[0].bypassed = true;
             fxSet.groups = std::vector<MixPluginGroup> { { { fxSet.plugins[0].slotId }, true } };
@@ -555,7 +590,7 @@ public:
             expect (chain->getSlot (1).bypassed.load(), "an independently bypassed plugin stays off");
         }
 
-        beginTest ("FX and master take plugins only; loading into a second session matches sends by name");
+        beginTest ("FX takes plugins only, master takes groups; loading into a second session matches sends by name");
         {
             auto set = sampleSet();
             set.groups = std::vector<MixPluginGroup> { { { set.plugins[0].slotId }, true } };
@@ -574,7 +609,7 @@ public:
                 const auto errors = document.applyPluginSet (*chain, set);
                 expectEquals (errors.size(), 3);
                 expectEquals (chain->getNumSlots(), 3);
-                expect (! chain->getSlot (0).bypassed.load());
+                expect (chain->getSlot (0).bypassed.load() == (chain == &engine.getMasterChain()));
                 expect (chain->getSlot (1).bypassed.load());
                 expectEquals ((int) channel.pluginGroups.size(), 1);
                 expect (! channel.pluginGroups[0].off && channel.pluginGroups[0].slots.empty());

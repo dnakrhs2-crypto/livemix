@@ -92,6 +92,8 @@ public:
         on across every mic channel that has one. */
     juce::String getPluginGroupHotkey (int group) const;
     void setPluginGroupHotkey (int group, const juce::String& description);
+    juce::String getMasterPluginGroupHotkey (int group) const;
+    void setMasterPluginGroupHotkey (int group, const juce::String& description);
     /** The hotkey that opens / closes the plugin windows of plugin group 'group' (1..MixSession::maxPluginGroups):
         the editors of that numbered group's members on every mic channel that has one. */
     juce::String getPluginGroupWindowHotkey (int group) const;

@@ -1,5 +1,21 @@
 # LiveMix Stream Deck changelog
 
+## 1.6.0 - 2026-11-14
+
+### 한국어
+
+- 플러그인 그룹 (마스터) 키를 추가했습니다. LiveMix 마스터 카드의 플러그인 그룹 1~5를 토글·켜기·끄기로 바꾸며, 다중 동작에서도 사용할 수 있습니다.
+- 마스터 그룹은 마이크 그룹과 따로입니다. 기존 ‘플러그인 그룹 (전체 마이크)’ 키는 마스터 그룹을 바꾸지 않고, 이 키는 마이크 그룹을 바꾸지 않습니다.
+- 그 번호의 마스터 그룹이 없으면 ‘그룹 없음’을 표시하고 누를 때 알림을 띄웁니다.
+- 이 키에는 LiveMix 0.23.0+의 `masterPluginGroups` 기능이 필요합니다. 이전 버전에서는 기존 업데이트 안내만 표시하고 명령을 보내지 않으며, 다른 키의 요구 버전은 그대로입니다.
+
+### English
+
+- Added Plugin Group (Master). It toggles, turns on or turns off plugin group 1-5 on the LiveMix master card; Multi Actions are supported.
+- Master groups are separate from microphone groups: Plugin Group (All Mics) does not change them, and this key does not change microphone groups.
+- A missing master group shows Group missing and an alert on press.
+- This key requires LiveMix 0.23.0+ and `masterPluginGroups`. Older versions show the existing update message and send no command; other actions keep their requirements.
+
 ## 1.5.0 - 2026-11-13
 
 ### 한국어

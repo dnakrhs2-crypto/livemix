@@ -65,6 +65,15 @@ ControlDispatcher::Result ControlDispatcher::dispatch (const ControlProtocol::Co
                 if (changed) document.setAllChannelsOn (a.on);
                 return P::CommandResult { P::AllChannelsResult { a.on, count } };
             }
+            else if constexpr (std::is_same_v<T, P::SetMasterPluginGroupOff>)
+            {
+                const auto index = (size_t) (a.index - 1);
+                if (index >= session.master.pluginGroups.size()) return Code::pluginGroupNotFound;
+                changed = session.master.pluginGroups[index].off != a.off;
+                if (! canAdvance()) return Code::internalError;
+                if (changed || a.off) document.setMasterPluginGroupOff ((int) index, a.off);
+                return P::CommandResult { P::PluginGroupResult { a.index, a.off } };
+            }
             else if constexpr (std::is_same_v<T, P::SetPluginGroupOffEverywhere>)
             {
                 const auto index = (size_t) (a.index - 1);

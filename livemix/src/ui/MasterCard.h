@@ -7,6 +7,8 @@
 
 #include <juce_gui_basics/juce_gui_basics.h>
 
+#include <array>
+
 namespace gocue::livemix
 {
 
@@ -33,6 +35,7 @@ public:
     void mouseUp (const juce::MouseEvent&) override;
 
     std::function<void()> onOpenChain;
+    std::function<void()> onOpenPluginGroups;
     std::function<void()> onAddPlugin;
     /** The LUFS button: the loudness meter window. */
     std::function<void()> onOpenLoudness;
@@ -66,8 +69,12 @@ private:
     {
         juce::Rectangle<int> caption, open, add;
         std::vector<juce::Rectangle<int>> chips;
+        juce::Rectangle<int> groups, groupsCaption;   // the plugin groups row under the chain's buttons
+        std::array<juce::Rectangle<int>, (size_t) MixSession::maxPluginGroups> groupNumbers;
         int bottom = 0;
     };
+    int groupRowWidth() const;   // the button, its caption and the five numbers on one line
+    void refreshGroups();
     ChainLayout measureChain (int width) const;
     static bool mediumLatencyFitsBesideChain (int width);
     void refreshObsStatus();
@@ -80,6 +87,10 @@ private:
     juce::Label badge, title, note, chainCaption, latencyCaption, latencyValue, latencyNote, compactLatency, outputCaption, meterCaption;
     std::vector<std::unique_ptr<juce::TextButton>> chips;
     juce::TextButton openChainButton, addPluginButton, lufsButton;
+    juce::TextButton pluginGroupsButton;
+    juce::Label groupsCaption;
+    // 1..5 under the chain, as on the mic cards: enabled once the group exists, lit (red) while it is off
+    std::array<std::unique_ptr<juce::TextButton>, (size_t) MixSession::maxPluginGroups> groupButtons;
     RecordingButton recordingButton;
     juce::ComboBox outputCombo;
     juce::ToggleButton obsToggle;

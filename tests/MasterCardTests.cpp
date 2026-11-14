@@ -144,7 +144,7 @@ public:
             const bool wide = width == 1400, narrow = width == 428;
             // The middle tier's latency row drops below the chain at 960: the record button joined LUFS (approved A, 10/26).
             const int recordSlot = juce::jmax (76, juce::GlyphArrangement::getStringWidthInt (titleFont (15), "00:00:00") + 46);
-            expectEquals (card.getPreferredHeight (width), wide ? 192 : narrow ? 310 : 240);
+            expectEquals (card.getPreferredHeight (width), wide ? 192 : narrow ? 346 : 276);   // + the plugin groups row (11/14)
             card.setSize (width, card.getPreferredHeight (width));
             rect (withText ("M"), { 14, 14, 32, 30 });
             rect (withText (ko ("마스터")), { 56, 12, narrow ? 160 : 152, 34 });
@@ -152,7 +152,13 @@ public:
             rect (withText ("1  TestGain"), { narrow ? 92 : 404, narrow ? 54 : 39, 110, 32 });
             rect (withText (ko ("체인 열기")), { narrow ? 210 : 522, narrow ? 55 : 40, 92, 30 });
             rect (withText (ko ("+ 추가")), { narrow ? 310 : 622, narrow ? 55 : 40, 76, 30 });
-            rect (withText ("LUFS"), { wide ? 895 : narrow ? 156 : 882 - recordSlot, narrow ? 94 : wide ? 40 : 79, 56, 30 });
+            // The plugin groups row 6 px under the chain's buttons, as on the mic cards (11/14)
+            const int groupsY = narrow ? 91 : 76;
+            rect (withText (ko ("플러그인 그룹")), { narrow ? 14 : 404, groupsY, 112, 30 });
+            rect (withText (ko ("그룹 OFF")), { narrow ? 134 : 524, groupsY + 2, 66, 26 });
+            for (int n = 1; n <= 5; ++n)
+                rect (withText (juce::String (n)), { (narrow ? 200 : 590) + (n - 1) * 34, groupsY + 3, 30, 24 });
+            rect (withText ("LUFS"), { wide ? 895 : narrow ? 156 : 882 - recordSlot, narrow ? 130 : wide ? 40 : 115, 56, 30 });
             if (wide)
             {
                 rect (withText (ko ("지연")), { 783, 12, 168, 26 });
@@ -161,7 +167,7 @@ public:
             }
             else
             {
-                rect (withText (ko ("지연 53.0 ms · 480 샘플")), { narrow ? 14 : 740 - recordSlot, narrow ? 94 : 79, 134, 30 });
+                rect (withText (ko ("지연 53.0 ms · 480 샘플")), { narrow ? 14 : 740 - recordSlot, narrow ? 130 : 115, 134, 30 });
                 // a four-digit buffer does not fit beside its word: 샘플 goes, the number stays whole (design check 10/30)
                 card.setLatency (21.3, 1024, 48000.0);
                 auto* fourDigits = dynamic_cast<juce::Label*> (withText (ko ("지연 21.3 ms · 1024")));
@@ -170,20 +176,35 @@ public:
                     expectGreaterOrEqual (fourDigits->getWidth(), labelWidthForText (*fourDigits, fourDigits->getText()));
                 card.setLatency (53.0, 480, 48000.0);
             }
-            rect (withText (ko ("메인 출력")), { wide ? 1136 : 14, wide ? 12 : narrow ? 132 : 126, 60, wide ? 26 : 30 });
-            rect (withText (ko ("출력 미터 L / R")), { wide ? 1136 : 14, wide ? 46 : narrow ? 170 : 164, wide ? 250 : narrow ? 400 : 372, 18 });
-            rect (withText (ko ("OBS로 보내기")), { wide ? 1136 : narrow ? 14 : 404, wide ? 118 : narrow ? 242 : 127, 117, 28 });
-            rect (card.findChildWithID ("obs-status"), { wide ? 1261 : narrow ? 139 : 529, wide ? 118 : narrow ? 242 : 127, 78, 28 });
+            rect (withText (ko ("메인 출력")), { wide ? 1136 : 14, wide ? 12 : narrow ? 168 : 162, 60, wide ? 26 : 30 });
+            rect (withText (ko ("출력 미터 L / R")), { wide ? 1136 : 14, wide ? 46 : narrow ? 206 : 200, wide ? 250 : narrow ? 400 : 372, 18 });
+            rect (withText (ko ("OBS로 보내기")), { wide ? 1136 : narrow ? 14 : 404, wide ? 118 : narrow ? 278 : 163, 117, 28 });
+            rect (card.findChildWithID ("obs-status"), { wide ? 1261 : narrow ? 139 : 529, wide ? 118 : narrow ? 278 : 163, 78, 28 });
             // Preserve obsHintHeight's native font measurement: 37 px fits with a 7 px bottom inset.
-            rect (card.findChildWithID ("obs-source-hint"), { wide ? 1136 : narrow ? 14 : 404, wide ? 148 : narrow ? 270 : 159, wide ? 250 : narrow ? 400 : 542, wide ? 37 : 28 });
+            rect (card.findChildWithID ("obs-source-hint"), { wide ? 1136 : narrow ? 14 : 404, wide ? 148 : narrow ? 306 : 195, wide ? 250 : narrow ? 400 : 542, wide ? 37 : 28 });
             for (auto* child : card.getChildren())
             {
                 if (dynamic_cast<juce::ComboBox*> (child) != nullptr)
                     rect (child, wide ? juce::Rectangle<int> { 1202, 10, 184, 30 }
-                                     : narrow ? juce::Rectangle<int> { 80, 132, 334, 30 } : juce::Rectangle<int> { 80, 126, 306, 30 });
+                                     : narrow ? juce::Rectangle<int> { 80, 168, 334, 30 } : juce::Rectangle<int> { 80, 162, 306, 30 });
                 if (dynamic_cast<MeterBar*> (child) != nullptr)
                     rect (child, wide ? juce::Rectangle<int> { 1136, 64, 250, 46 }
-                                     : narrow ? juce::Rectangle<int> { 14, 188, 400, 46 } : juce::Rectangle<int> { 14, 182, 372, 46 });
+                                     : narrow ? juce::Rectangle<int> { 14, 224, 400, 46 } : juce::Rectangle<int> { 14, 218, 372, 46 });
+            }
+        }
+        {
+            // 364 px is narrower than the whole groups row: the caption and the numbers take a row of their own, as on a
+            // narrow mic card, and the five numbers stay inside the card
+            card.setSize (364, card.getPreferredHeight (364));
+            auto* groupsButton = withText (ko ("플러그인 그룹"));
+            auto* groupsCaption = withText (ko ("그룹 OFF"));
+            auto* five = withText ("5");
+            expect (groupsButton != nullptr && groupsCaption != nullptr && five != nullptr);
+            if (groupsButton != nullptr && groupsCaption != nullptr && five != nullptr)
+            {
+                expectEquals (groupsCaption->getX(), groupsButton->getX());
+                expectEquals (groupsCaption->getY(), groupsButton->getBottom() + 6 + 2);
+                expectLessOrEqual (five->getRight(), 364 - 14);
             }
         }
         engine.getMasterChain().clear();
@@ -257,6 +278,90 @@ public:
                     }
                 }
             }
+        }
+
+        beginTest ("Master plugin groups row: the numbers follow the master's groups and a press switches only that group");
+        {
+            auto& chain = engine.getMasterChain();
+            chain.clear();
+            chain.addPlugin (std::make_unique<TestGainPlugin> (1.0f));
+            chain.addPlugin (std::make_unique<TestGainPlugin> (1.0f));
+            card.setStrip (false);
+            card.refresh();
+            card.setSize (1400, card.getPreferredHeight (1400));
+            const auto first = chain.getSlot (0).state.slotId;
+            const auto button = [&] (const juce::String& text) -> juce::TextButton*
+            {
+                for (auto* child : card.getChildren())
+                    if (auto* b = dynamic_cast<juce::TextButton*> (child); b != nullptr && b->getButtonText() == text) return b;
+                return nullptr;
+            };
+            juce::TextButton* numbers[5] = {};
+            bool found = true;
+            for (int n = 1; n <= 5; ++n)
+            {
+                numbers[n - 1] = button (juce::String (n));
+                found = found && numbers[n - 1] != nullptr;
+            }
+            auto* groupsButton = button (ko ("플러그인 그룹"));
+            expect (found && groupsButton != nullptr);
+            if (found && groupsButton != nullptr)
+            {
+                for (auto* b : numbers)
+                    expect (! b->isEnabled(), "no master group yet");
+                expect (numbers[0]->getTooltip().contains (ko ("아직 없습니다")));
+                int opened = 0;
+                card.onOpenPluginGroups = [&] { ++opened; };
+                groupsButton->onClick();
+                expectEquals (opened, 1);
+
+                const auto mic = document.getSession().channels.empty() ? juce::Uuid() : document.getSession().channels[0].id;
+                const bool micGroup = ! document.getSession().channels.empty() && document.addPluginGroup (mic) == 0;
+                expectEquals (document.addMasterPluginGroup(), 0);
+                document.setMasterPluginGroupMember (0, first, true);
+                expectEquals (document.addMasterPluginGroup(), 1);
+                expect (numbers[0]->isEnabled() && numbers[1]->isEnabled() && ! numbers[2]->isEnabled());
+                expect (! numbers[0]->getToggleState());
+                expect (numbers[0]->getTooltip().contains (ko ("플러그인 그룹 1 (1개)")));
+
+                numbers[0]->onClick();   // the press: master group 1 off - its plugin bypassed, the number lit
+                expect (document.getSession().master.pluginGroups[0].off);
+                expect (chain.getSlot (0).bypassed.load());
+                expect (! chain.getSlot (1).bypassed.load());
+                expect (numbers[0]->getToggleState() && ! numbers[1]->getToggleState());
+                expect (numbers[0]->getTooltip().contains (ko ("꺼져 있음")));
+                if (micGroup)
+                    expect (! document.getSession().channels[0].pluginGroups[0].off, "a master number leaves the mic's group 1 alone");
+
+                const auto folder = juce::SystemStats::getEnvironmentVariable ("LIVEMIX_UI_SCREENSHOT_DIR", {});
+                if (folder.isNotEmpty())
+                    for (int width : { 1400, 988, 428, 364 })
+                    {
+                        card.setSize (width, card.getPreferredHeight (width));
+                        const juce::File directory (folder);
+                        expect (directory.createDirectory().wasOk());
+                        juce::FileOutputStream output (directory.getChildFile ("master-groups-" + juce::String (width) + ".png"));
+                        if (output.openedOk())
+                        {
+                            expect (output.setPosition (0));
+                            expect (output.truncate().wasOk());
+                            expect (juce::PNGImageFormat().writeImageToStream (card.createComponentSnapshot (card.getLocalBounds()), output));
+                        }
+                    }
+
+                numbers[0]->onClick();   // and back on
+                expect (! document.getSession().master.pluginGroups[0].off);
+                expect (! chain.getSlot (0).bypassed.load());
+                expect (! numbers[0]->getToggleState());
+
+                card.onOpenPluginGroups = nullptr;
+                document.removeMasterPluginGroup (1);
+                document.removeMasterPluginGroup (0);
+                if (micGroup)
+                    document.removePluginGroup (mic, 0);
+            }
+            chain.clear();
+            card.refresh();
         }
 
         beginTest ("Windows master output is limited to the monitor pair or OBS only; toggle edits the document");
@@ -407,8 +512,9 @@ public:
                 if (fx) top->onFxPanel();
                 else first->onOpenChain (first->getChannelId());
                 // A (10/26): the record button joined LUFS, so the 960 px middle tier's latency row sits below the chain.
-                rect (*master, { 16, 622, 960, 240 });
-                rect (*viewport, { 16, 106, 968, 496 });
+                // 11/14: + the master's plugin groups row (36 px) in the middle tier and the narrow stack
+                rect (*master, { 16, 586, 960, 276 });
+                rect (*viewport, { 16, 106, 968, 460 });
                 rect (*first, { 0, 0, 960, 272 });
                 rect (*add, { 0, 852, 960, 56 });
                 expectEquals (viewport->getViewedComponent()->getHeight(), 908);
@@ -419,8 +525,8 @@ public:
                 expect (viewport->getVerticalScrollBar().isVisible());
             }
             main.setSize (460, 993);
-            rect (*master, { 16, 645, 428, 310 });
-            rect (*viewport, { 16, 190, 428, 435 });
+            rect (*master, { 16, 609, 428, 346 });
+            rect (*viewport, { 16, 190, 428, 399 });
             rect (*first, { 0, 0, 420, 618 });
             rect (*add, { 0, 1890, 420, 56 });
             expectEquals (viewport->getViewedComponent()->getHeight(), 1946);
@@ -431,7 +537,7 @@ public:
             expectEquals (drawer->getWidth(), 460);
             drawer->onClose();
             main.setSize (420, 993);
-            rect (*master, { 16, 607, 388, 348 });
+            rect (*master, { 16, 571, 388, 384 });
             rect (*first, { 0, 0, 380, 618 });
             expect (! master->isStrip());
             main.setSize (460, 650);

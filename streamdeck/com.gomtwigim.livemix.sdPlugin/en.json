@@ -96,6 +96,18 @@
       }
     ]
   },
+  "com.gomtwigim.livemix.plugin-group-master": {
+    "Name": "Plugin Group (Master)",
+    "Tooltip": "Switches only the master's group of that number. Separate from the microphone groups.",
+    "States": [
+      {
+        "Name": "OFF"
+      },
+      {
+        "Name": "ON"
+      }
+    ]
+  },
   "com.gomtwigim.livemix.plugin-group-all": {
     "Name": "Plugin Group (All Mics)",
     "Tooltip": "Switch a numbered plugin group off or on across every microphone at once (LiveMix 0.10.0+).",
@@ -197,6 +209,9 @@
     "allTargets": "All {count}",
     "pluginGroup": "Plugin Group",
     "pluginGroupTooltip": "Toggle an existing numbered plugin group on a microphone.",
+    "pluginGroupMaster": "Plugin Group (Master)",
+    "master": "Master",
+    "groupMasterNote": "Switches only the master's group of that number. Separate from the microphone groups.",
     "pluginGroupAll": "Plugin Group (All Mics)",
     "pluginGroupAllTooltip": "Switch a numbered plugin group off or on across every microphone at once (LiveMix 0.10.0+).",
     "pluginWindow": "Plugin Group Windows",

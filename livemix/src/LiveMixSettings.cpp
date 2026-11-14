@@ -288,6 +288,16 @@ void LiveMixSettings::setPluginGroupHotkey (int group, const juce::String& descr
     settings->setValue (juce::String (Keys::pluginGroupHotkey) + juce::String (group), description.trim());
 }
 
+juce::String LiveMixSettings::getMasterPluginGroupHotkey (int group) const
+{
+    return settings->getValue ("masterPluginGroupHotkey" + juce::String (group));
+}
+
+void LiveMixSettings::setMasterPluginGroupHotkey (int group, const juce::String& description)
+{
+    settings->setValue ("masterPluginGroupHotkey" + juce::String (group), description.trim());
+}
+
 juce::String LiveMixSettings::getPluginGroupWindowHotkey (int group) const
 {
     return settings->getValue (juce::String (Keys::pluginGroupWindowHotkey) + juce::String (group));

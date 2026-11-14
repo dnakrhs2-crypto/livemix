@@ -8,6 +8,7 @@
   const isMute = () => kind.endsWith("mute-group") || kind.endsWith("mute-all");
   const isSendStep = () => kind === "fx-send-step";
   const isGroupAll = () => kind === "plugin-group-all";
+  const isMaster = () => kind === "plugin-group-master";
   const isWindow = () => kind === "plugin-window";
   const allWindows = () => isWindow() && settings.windowTarget !== "mic";
   const allGroups = () => isGroupAll() || allWindows();
@@ -43,7 +44,7 @@
     const group = byId("group"), index = settings.groupIndex || 1;
     const groupCounts = new Map();
     if (allGroups()) for (const channel of channels) for (const n of new Set(channel.groupIndices || [])) groupCounts.set(n, (groupCounts.get(n) || 0) + 1);
-    const indices = allGroups() ? [...groupCounts.keys()].sort((a, b) => a - b) : channels.find(c => c.id === settings.channelId)?.groupIndices || groupIndices;
+    const indices = isMaster() ? groupIndices : allGroups() ? [...groupCounts.keys()].sort((a, b) => a - b) : channels.find(c => c.id === settings.channelId)?.groupIndices || groupIndices;
     group.replaceChildren(); group.disabled = !ready;
     if (!indices.includes(index)) {
       const missing = option(index, t.group + " " + index + (ready ? " · " + t.missingGroup : ""));
@@ -52,7 +53,7 @@
     for (const n of indices) group.append(option(n, t.group + " " + n + (allGroups() ? " · " + (groupCounts.get(n) === 1 ? t.groupMicCountOne : t.groupMicCount).replace("{count}", String(groupCounts.get(n))) : "")));
     group.value = String(index);
     const note = kind.endsWith("mute-group") ? t.membershipNote + "\n" + t.targets.replace("{count}", String(ready && counts ? counts[kind === "mic-mute-group" ? "mic" : "fx"] : "—"))
-      : isGroupAll() ? t.groupAllNote + "\n" + t.groupNote : kind === "plugin-group" || isWindow() ? t.groupNote : kind === "fx-send" ? t.dialNote : "";
+      : isMaster() ? t.groupMasterNote : isGroupAll() ? t.groupAllNote + "\n" + t.groupNote : kind === "plugin-group" || isWindow() ? t.groupNote : kind === "fx-send" ? t.dialNote : "";
     byId("note").textContent = [note, isInMultiAction ? t.multiActionNote : ""].filter(Boolean).join("\n");
     byId("note").hidden = !byId("note").textContent;
   }
@@ -89,7 +90,7 @@
     document.documentElement.lang = info.application.language === "ko" ? "ko" : "en";
     for (const [id, key] of [["channel", "microphone"], ["fx", "fxChannel"], ["group", "group"], ["mode", "mode"], ["step", "step"], ["target", "targetValue"], ["press", "press"], ["display", "display"], ["fallback", "fallback"], ["title", "shortTitle"]]) byId(id + "-label").textContent = t[key];
     const bound = ["mic", "plugin-group", "plugin-window", "fx-send", "fx-send-step"].includes(kind);
-    for (const [id, visible] of [["channel", bound], ["fx", kind === "fx" || kind === "fx-send" || isSendStep()], ["group", kind === "plugin-group" || isGroupAll() || isWindow()],
+    for (const [id, visible] of [["channel", bound], ["fx", kind === "fx" || kind === "fx-send" || isSendStep()], ["group", kind === "plugin-group" || isGroupAll() || isMaster() || isWindow()],
       ["mode", !["fx-send", "status"].includes(kind)], ["step", kind === "fx-send"], ["press", kind === "fx-send"],
       ["display", kind === "status"], ["fallback", bound || kind === "fx"], ["title", !["fx-send", "fx-send-step", "status"].includes(kind)]]) byId(id + "-row").hidden = !visible;
     choices("mode", isSendStep() ? [["up", t.increase], ["down", t.decrease], ["set", t.setValue]]

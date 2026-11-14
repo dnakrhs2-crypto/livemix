@@ -169,7 +169,8 @@ export abstract class LiveMixAction extends SingletonAction<ActionSettings> {
       ...(ready ? { instanceId: snapshot.instanceId, sessionId: snapshot.sessionId, revision: snapshot.revision,
         channels: snapshot.state.channels.map(ch => ({ id: ch.id, name: ch.name, groupIndices: ch.pluginGroups.map(g => g.index) })),
         fx: snapshot.state.fx.map(fx => ({ id: fx.id, name: fx.name })),
-        groupIndices: binding?.status === "bound" ? binding.channel.pluginGroups.map(g => g.index) : [],
+        groupIndices: this.kind === "plugin-group-master" ? snapshot.state.master.pluginGroups.map(g => g.index)
+          : binding?.status === "bound" ? binding.channel.pluginGroups.map(g => g.index) : [],
         muteGroupCounts: { mic: snapshot.state.channels.filter(ch => ch.muteGroup).length, fx: snapshot.state.fx.filter(fx => fx.muteGroup).length }
       } : {}) }).catch(() => {});
   }

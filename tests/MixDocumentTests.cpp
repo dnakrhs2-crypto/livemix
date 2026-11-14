@@ -16,6 +16,67 @@ public:
 
     void runTest() override
     {
+        beginTest ("master groups bypass the live master only, respect overlapping OFF groups and survive reopening");
+        {
+            MixEngine engine;
+            engine.prepare (48000.0, 64);
+            MixDocument doc (engine);
+            doc.applyToEngine();
+            auto& chain = engine.getMasterChain();
+            chain.addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            chain.addPlugin (std::make_unique<TestGainPlugin> (0.25f));
+            const auto first = chain.getSlot (0).state.slotId, second = chain.getSlot (1).state.slotId;
+            const auto mic = doc.getSession().channels[0].id;
+            doc.addPluginGroup (mic);
+            int values = 0;
+            doc.onValueChanged = [&] { ++values; };
+            expectEquals (doc.addMasterPluginGroup(), 0);
+            doc.setMasterPluginGroupMember (0, first, true);
+            values = 0;
+            doc.setMasterPluginGroupOff (0, true);
+            expectEquals (values, 1);
+            expect (chain.getSlot (0).bypassed.load());
+            expect (! chain.getSlot (1).bypassed.load());
+            expect (! doc.getSession().channels[0].pluginGroups[0].off);
+            doc.setMasterPluginGroupMember (0, second, true);
+            expect (chain.getSlot (1).bypassed.load());
+            doc.setMasterPluginGroupMember (0, second, false);
+            expect (! chain.getSlot (1).bypassed.load());
+            expectEquals (doc.addMasterPluginGroup(), 1);
+            doc.setMasterPluginGroupMember (1, first, true);
+            doc.setMasterPluginGroupOff (1, true);
+            doc.setMasterPluginGroupOff (0, false);
+            expect (chain.getSlot (0).bypassed.load());
+            doc.setMasterPluginGroupOff (0, true);
+            doc.removeMasterPluginGroup (0);
+            expect (chain.getSlot (0).bypassed.load());
+            doc.setMasterPluginGroupMember (0, first, false);
+            expect (! chain.getSlot (0).bypassed.load());
+            doc.setMasterPluginGroupMember (0, first, true);
+            doc.removeMasterPluginGroup (0);
+            expect (! chain.getSlot (0).bypassed.load());
+            doc.addMasterPluginGroup();
+            doc.setMasterPluginGroupMember (0, first, true);
+            doc.setMasterPluginGroupMember (0, second, true);
+            doc.setMasterPluginGroupOff (0, true);
+            chain.removePlugin (0);
+            doc.markDirty();   // the chain listener's existing edit notification
+            expect (doc.getSession().master.pluginGroups[0].slots == std::vector<juce::Uuid> { first, second });
+            for (int i = 1; i < MixSession::maxPluginGroups; ++i) expectEquals (doc.addMasterPluginGroup(), i);
+            expectEquals (doc.addMasterPluginGroup(), -1);
+            doc.setGroupOffOnEveryChannel (0, false);
+            expect (doc.getSession().master.pluginGroups[0].off);
+            const auto file = juce::File::createTempFile (".livemix");
+            expect (doc.save (file).wasOk());
+            expect (doc.getSession().master.pluginGroups[0].slots == std::vector<juce::Uuid> { first, second });
+            expect (doc.load (file).wasOk());
+            expect (doc.getSession().master.pluginGroups[0].slots == std::vector<juce::Uuid> { second });
+            expect (doc.getSession().master.pluginGroups[0].off);
+            expect (engine.getMasterChain().getSlot (0).bypassed.load());
+            expectEquals ((int) doc.getSession().master.pluginGroups.size(), 5);
+            expect (file.deleteFile());
+        }
+
         beginTest ("Send to OBS is a value edit, notifies once, and persists through save and load");
         {
             MixEngine engine ("Local\\LiveMix.DocumentObsTest." + juce::Uuid().toString());

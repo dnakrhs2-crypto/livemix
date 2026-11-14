@@ -1,5 +1,12 @@
 These are normalized transcripts of the C++ reference, not a new mock protocol.
 
+The master-group extension adds `state.master.pluginGroups` (empty in the initial
+fixture), `masterPluginGroups` capability, and `setMasterPluginGroupOff {index, off}`.
+The fake server enables this capability with `masterPluginGroups:true`; its default
+keeps earlier capability configurations for the existing action tests. Master group
+deltas replace the whole list. A missing master object on older servers defaults
+to an empty list, and the new action requires the capability before sending commands.
+
 `tests/ControlServerTests.cpp` constructs JSON with `Client::hello`, `command`,
 `toggle`, `ping`, and `wire` rather than containing literal JSON transcript files.
 The fixtures transcribe those objects with fixed non-null JUCE-format UUIDs,

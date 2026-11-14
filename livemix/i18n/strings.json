@@ -1632,12 +1632,6 @@
     "where": "livemix/src/ui/ChainDrawer.cpp:994"
   },
   {
-    "ko": " (FX·마스터 체인에는 플러그인만 넣었습니다)",
-    "en": " (only plugins were loaded into FX/Master chains)",
-    "ja": " (FX・マスターチェーンにはプラグインだけを読み込みました)",
-    "where": "livemix/src/ui/ChainDrawer.cpp:994"
-  },
-  {
     "ko": "세트의 일부를 넣지 못했습니다",
     "en": "Some of the set could not be loaded",
     "ja": "セットの一部を読み込めませんでした",
@@ -1756,6 +1750,12 @@
     "en": "Choose plugins in this channel's chain and group them. Use the numbers below to toggle just those plugins (up to 5 groups)",
     "ja": "このチャンネルのチェーンからプラグインを選んでグループにまとめます。下の番号で、そのプラグインだけをオン・オフできます (最大5グループ)",
     "where": "livemix/src/ui/ChannelCard.cpp:188"
+  },
+  {
+    "ko": "마스터의 플러그인 그룹: 체인의 플러그인 중 골라 그룹으로 묶어 두면, 아래 번호 한 번으로 그것들만 끄고 켭니다 (최대 5개)",
+    "en": "Choose plugins in the master chain and group them. Use the numbers below to toggle just those plugins (up to 5 groups)",
+    "ja": "マスターのチェーンからプラグインを選んでグループにまとめます。下の番号で、そのプラグインだけをオン・オフできます (最大5グループ)",
+    "where": "livemix/src/ui/MasterCard.cpp:41"
   },
   {
     "ko": "그룹 OFF",
@@ -3114,6 +3114,12 @@
     "where": "livemix/src/ui/PluginGroupsWindow.cpp:53"
   },
   {
+    "ko": "그룹을 만들면 마스터 카드의 체인 밑에 그 번호가 켜집니다. 번호를 누르면 그룹에 넣은 플러그인이 한꺼번에 꺼지고 (번호가 빨갛게), 다시 누르면 켜집니다. 그룹에 없는 플러그인은 그대로입니다.",
+    "en": "Creating a group enables its number below the master card's chain. Press the number to turn all plugins in that group off (the number turns red); press again to turn them on. Other plugins are unchanged.",
+    "ja": "グループを作成すると、マスターカードのチェーン下に番号が表示されます。押すとグループ内のプラグインが一括でオフになり、番号が赤くなります。もう一度押すとオンになります。グループ外のプラグインは変わりません。",
+    "where": "livemix/src/ui/PluginGroupsWindow.cpp:259"
+  },
+  {
     "ko": " · 꺼짐",
     "en": " · off",
     "ja": " · オフ",
@@ -4468,5 +4474,41 @@
     "en": "-24 LUFS   Broadcast (ATSC A/85)",
     "ja": "-24 LUFS   放送 (ATSC A/85)",
     "where": "livemix/src/ui/LoudnessWindow.cpp:31"
+  },
+  {
+    "ko": "마스터 플러그인 그룹 {0}",
+    "en": "Master plugin group {0}",
+    "ja": "マスター プラグイングループ {0}",
+    "where": "livemix/src/ui/SettingsDialog.cpp"
+  },
+  {
+    "ko": "마스터 플러그인 그룹 핫키는 마스터의 그 번호 그룹만 껐다 켭니다.",
+    "en": "Master plugin group hotkeys switch only that numbered group on the master off or on.",
+    "ja": "マスター プラグイングループのホットキーは、マスターの同じ番号のグループだけをオフ・オンにします。",
+    "where": "livemix/src/ui/SettingsDialog.cpp"
+  },
+  {
+    "ko": "마스터 플러그인 그룹 {0}{1}",
+    "en": "Master plugin group {0}{1}",
+    "ja": "マスター プラグイングループ {0}{1}",
+    "where": "livemix/src/ui/MainComponent.cpp"
+  },
+  {
+    "ko": "마스터에 플러그인 그룹 {0}이(가) 없습니다 (마스터 카드의 '플러그인 그룹'에서 만듭니다)",
+    "en": "The master has no plugin group {0} (create it from 'Plugin groups' on the master card)",
+    "ja": "マスターにプラグイングループ {0} がありません (マスターカードの「プラグイングループ」で作成します)",
+    "where": "livemix/src/ui/MainComponent.cpp"
+  },
+  {
+    "ko": " (FX 체인에는 플러그인만 넣었습니다)",
+    "en": " (Only plugins were loaded into the FX chain)",
+    "ja": " (FXチェーンにはプラグインのみ読み込みました)",
+    "where": "livemix/src/ui/ChainDrawer.cpp"
+  },
+  {
+    "ko": " (마스터에는 FX 센드값을 넣지 않았습니다)",
+    "en": " (FX send values were not loaded into the master)",
+    "ja": " (マスターにはFXセンド値を読み込みませんでした)",
+    "where": "livemix/src/ui/ChainDrawer.cpp"
   }
 ]

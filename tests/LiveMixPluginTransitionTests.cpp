@@ -95,6 +95,40 @@ public:
 
     void runTest() override
     {
+        beginTest ("master equal OFF repairs bypass and equal ON preserves manual bypass without a document edit");
+        {
+            TransitionFixture f;
+            const auto directory = juce::File::getSpecialLocation (juce::File::tempDirectory)
+                .getChildFile ("livemix-master-transition-" + juce::Uuid().toString());
+            {
+                LiveMixSettings settings (directory);
+                MainComponent main (f.document, settings);
+                auto& chain = f.engine.getMasterChain();
+                chain.addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+                f.document.addMasterPluginGroup();
+                f.document.setMasterPluginGroupMember (0, chain.getSlot (0).state.slotId, true);
+                (main.*member (OpenTransitionChain {})) (&chain, "Master");
+                auto* drawer = transitionChild<ChainDrawer> (main);
+                expect (drawer != nullptr);
+                for (bool off : { true, false })
+                {
+                    f.document.setMasterPluginGroupOff (0, off);
+                    chain.setBypassed (0, ! off);
+                    f.document.discardUnsavedChanges();
+                    f.state.update (ControlState::capture (f.document, f.groups, false));
+                    const auto revision = f.state.getCurrent().revision;
+                    const auto reply = f.dispatcher.dispatch ({ off ? "1" : "2", f.instance, f.document.getSessionGeneration(), {}, P::SetMasterPluginGroupOff { 1, off } });
+                    const auto* ack = std::get_if<P::Ack> (&reply);
+                    expect (ack != nullptr && ! ack->changed);
+                    if (ack != nullptr) expectEquals (ack->context.revision, revision);
+                    expect (chain.getSlot (0).bypassed.load(), off ? "Equal OFF restores bypass" : "Equal ON preserves manual bypass");
+                    expect (! f.document.isDirty());
+                    if (drawer != nullptr) expect (! transitionChild<juce::ToggleButton> (*drawer)->getToggleState());
+                }
+            }
+            expect (directory.deleteRecursively());
+        }
+
         beginTest ("equal OFF re-sync refreshes the real chain button without a document edit");
         for (const bool everywhere : { false, true })
         {

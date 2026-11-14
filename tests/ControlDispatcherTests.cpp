@@ -99,6 +99,58 @@ public:
 
     void runTest() override
     {
+        beginTest ("master group commands are isolated, repair equal OFF and report missing groups");
+        {
+            Fixture f;
+            f.document.addMasterPluginGroup();
+            f.document.addPluginGroup (f.channel());
+            auto& chain = f.engine.getMasterChain();
+            chain.addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            f.document.setMasterPluginGroupMember (0, chain.getSlot (0).state.slotId, true);
+            f.clean();
+            auto a = ack (f, P::SetMasterPluginGroupOff { 1, true });
+            expect (a.changed && result<P::PluginGroupResult> (a).off);
+            expect (chain.getSlot (0).bypassed.load());
+            expect (! f.document.getSession().channels[0].pluginGroups[0].off);
+            expectEquals (f.valueCalls, 1);
+            chain.setBypassed (0, false);
+            f.clean();
+            const auto revision = f.state.getCurrent().revision;
+            a = ack (f, P::SetMasterPluginGroupOff { 1, true });
+            expect (! a.changed && chain.getSlot (0).bypassed.load());
+            expectEquals (a.context.revision, revision);
+            expectEquals (f.valueCalls, 0);
+            expect (! f.document.isDirty());
+            ack (f, P::SetPluginGroupOffEverywhere { 1, false });
+            expect (f.document.getSession().master.pluginGroups[0].off);
+            a = ack (f, P::SetMasterPluginGroupOff { 1, false });
+            expect (a.changed && ! chain.getSlot (0).bypassed.load());
+            const auto reply = f.dispatcher.dispatch (f.command (P::SetMasterPluginGroupOff { 5, true }));
+            const auto* error = std::get_if<P::ErrorResponse> (&reply);
+            expect (error != nullptr && error->error.code == P::ErrorCode::pluginGroupNotFound);
+        }
+
+        beginTest ("equal master group ON preserves a member bypassed by hand");
+        {
+            Fixture f;
+            auto& chain = f.engine.getMasterChain();
+            chain.addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            f.document.addMasterPluginGroup();
+            f.document.setMasterPluginGroupMember (0, chain.getSlot (0).state.slotId, true);
+            chain.setBypassed (0, true);
+            f.clean();
+            const auto revision = f.state.getCurrent().revision;
+            const auto a = ack (f, P::SetMasterPluginGroupOff { 1, false });
+            expect (! a.changed);
+            const auto r = result<P::PluginGroupResult> (a);
+            expectEquals (r.index, 1);
+            expect (! r.off && ! f.document.getSession().master.pluginGroups[0].off);
+            expect (chain.getSlot (0).bypassed.load() && chain.getSlot (0).state.bypassed);
+            expectEquals (a.context.revision, revision);
+            expectEquals (f.valueCalls, 0);
+            expect (! f.document.isDirty());
+        }
+
         beginTest ("set/toggle change the real offline model and engine once, through the existing value callback");
         {
             Fixture f;

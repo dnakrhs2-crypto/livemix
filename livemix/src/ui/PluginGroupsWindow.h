@@ -17,7 +17,7 @@ public:
     ~PluginGroupsWindow() override;
 
     /** Shows the groups of that channel. */
-    void open (const juce::Uuid& channelId);
+    void open (const juce::Uuid& channelId);   // null selects the master
     /** The session or a chain changed: what is shown follows (the channel gone: the window closes). */
     void refresh();
     void closeButtonPressed() override;

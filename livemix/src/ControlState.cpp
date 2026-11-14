@@ -22,6 +22,8 @@ ControlState::Snapshot ControlState::capture (const MixDocument& document, const
     p.allMicsMuted = groups.isAllMuted (MuteGroups::Group::mic);
     p.allFxMuted = groups.isAllMuted (MuteGroups::Group::fx);
     const auto& session = document.getSession();
+    for (size_t i = 0; i < session.master.pluginGroups.size(); ++i)
+        p.masterPluginGroups.push_back ({ (int) i + 1, session.master.pluginGroups[i].off });
     for (const auto& c : session.channels)
     {
         ControlProtocol::Channel channel { c.id, c.name, c.on, c.muteGroup, {}, {}, c.pan };
@@ -43,6 +45,9 @@ ControlState::Snapshot ControlState::capture (const MixDocument& document, const
 
 bool ControlState::sameStructure (const ControlProtocol::Projection& a, const ControlProtocol::Projection& b)
 {
+    if (a.masterPluginGroups.size() != b.masterPluginGroups.size()) return false;
+    for (size_t i = 0; i < a.masterPluginGroups.size(); ++i)
+        if (a.masterPluginGroups[i].index != b.masterPluginGroups[i].index) return false;
     if (a.channels.size() != b.channels.size() || a.fx.size() != b.fx.size()) return false;
     for (size_t i = 0; i < a.channels.size(); ++i)
     {
@@ -105,6 +110,7 @@ ControlState::Difference ControlState::diff (const Snapshot& published, const Sn
     if (a.fxMuted != b.fxMuted) changes.fxMuted = b.fxMuted;
     if (a.allMicsMuted != b.allMicsMuted) changes.allMicsMuted = b.allMicsMuted;
     if (a.allFxMuted != b.allFxMuted) changes.allFxMuted = b.allFxMuted;
+    if (a.masterPluginGroups != b.masterPluginGroups) changes.masterPluginGroups = b.masterPluginGroups;
     for (size_t i = 0; i < a.channels.size(); ++i)
     {
         const auto& x = a.channels[i];

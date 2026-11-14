@@ -374,6 +374,35 @@ public:
             expectEquals ((int) o.channels[0].pluginGroups[0].slots.size(), 0);   // its members named ids no slot has now
         }
 
+        beginTest ("master groups survive JSON, cap at five and clean members without changing the file version");
+        {
+            MixSession source;
+            source.addChannel();
+            PluginSlotState slot;
+            source.master.chain = source.channels[0].chain = { slot };
+            for (int i = 0; i < 7; ++i)
+                source.channels[0].pluginGroups.push_back ({ { slot.slotId, slot.slotId, juce::Uuid() }, true });
+            auto json = juce::JSON::parse (source.toJson());
+            json["master"].getDynamicObject()->setProperty ("pluginGroups", json["channels"][0]["pluginGroups"]);
+            MixSession loaded;
+            expect (MixSession::fromJson (juce::JSON::toString (json), loaded).wasOk());
+            const auto saved = juce::JSON::parse (loaded.toJson());
+            const auto groups = saved["master"]["pluginGroups"];
+            expectEquals (groups.size(), MixSession::maxPluginGroups);
+            if (groups.size() > 0)
+            {
+                expect ((bool) groups[0]["off"]);
+                expectEquals (groups[0]["slots"].size(), 1);
+                if (groups[0]["slots"].size() > 0)
+                    expectEquals (groups[0]["slots"][0].toString(), slot.slotId.toString());
+            }
+            expectEquals ((int) saved["version"], 4);
+            json["master"].getDynamicObject()->removeProperty ("pluginGroups");
+            expect (MixSession::fromJson (juce::JSON::toString (json), loaded).wasOk());
+            expectEquals (juce::JSON::parse (loaded.toJson())["master"]["pluginGroups"].size(), 0);
+            expectEquals ((int) loaded.master.chain.size(), 1);
+        }
+
         beginTest ("broken, foreign and future files are refused; save is verified and atomic");
         {
             MixSession q;

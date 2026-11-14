@@ -70,12 +70,16 @@ public:
     void setMasterOutput (int first);
     void setSendToObs (bool enabled);   // per-session preference
 
-    /** A mic channel's plugin groups (MixPluginGroup): made, dropped, their members picked among the chain's slots
+    /** A mic channel's plugin groups (null channelId selects the master): made, dropped, their members picked among the chain's slots
         (by slot id), and switched off / on - off bypasses every member in the live chain at once. */
     int addPluginGroup (const juce::Uuid& channelId);   // the new group's index, or -1 with maxPluginGroups there already
     void removePluginGroup (const juce::Uuid& channelId, int group);   // an OFF group's members come back on
     void setPluginGroupMember (const juce::Uuid& channelId, int group, const juce::Uuid& slotId, bool member);   // joining an OFF group switches the plugin off at once, leaving it switches it on
     void setPluginGroupOff (const juce::Uuid& channelId, int group, bool off);
+    int addMasterPluginGroup() { return addPluginGroup (juce::Uuid::null()); }
+    void removeMasterPluginGroup (int group) { removePluginGroup (juce::Uuid::null(), group); }
+    void setMasterPluginGroupMember (int group, const juce::Uuid& slotId, bool member) { setPluginGroupMember (juce::Uuid::null(), group, slotId, member); }
+    void setMasterPluginGroupOff (int group, bool off) { setPluginGroupOff (juce::Uuid::null(), group, off); }
     /** Sets the same numbered group (0-based) on every mic channel that has one, with one value announcement.
         Returns how many channels have that group (0: nothing happened). */
     int setGroupOffOnEveryChannel (int group, bool off);
@@ -84,7 +88,7 @@ public:
         (0: nothing happened) and, in 'switchedOff', which way they went. */
     int toggleGroupOnEveryChannel (int group, bool& switchedOff);
 
-    /** Replaces a live mic/FX/master chain using restore's atomic publication. Mic groups and sends
+    /** Replaces a live mic/FX/master chain using restore's atomic publication. Mic/master groups and mic sends
         follow the set's optional data; all edits, including chain listener calls, announce once. */
     juce::StringArray applyPluginSet (PluginChain& chain, const PluginSet& set);
 
@@ -130,8 +134,10 @@ public:
 private:
     juce::Result save (const juce::File& file, const MixSession* captureForSave);
     bool bypassSlot (const juce::Uuid& channelId, const juce::Uuid& slotId, bool bypass);   // true when the live slot's bypass changed
-    /** Another OFF group of the channel (not 'exceptGroup') holds the slot: switching one group on must not run it. */
-    static bool heldOffElsewhere (const MixChannel& channel, const juce::Uuid& slotId, int exceptGroup);
+    /** Another OFF group of this owner (not 'exceptGroup') holds the slot: switching one group on must not run it. */
+    static bool heldOffElsewhere (const std::vector<MixPluginGroup>& groups, const juce::Uuid& slotId, int exceptGroup);
+    std::vector<MixPluginGroup>* pluginGroupsFor (const juce::Uuid& channelId);
+    PluginChain* groupChain (const juce::Uuid& channelId) const;
     bool liveChainHas (const juce::Uuid& channelId, const juce::Uuid& slotId) const;
     void structureChanged();   // an edit: dirty, then announced
     void valueChanged();

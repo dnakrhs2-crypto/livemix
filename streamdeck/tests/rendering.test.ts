@@ -98,7 +98,7 @@ test("release images have localized labels, distinct group shapes and independen
 
 test("thirteen manifest actions have required controllers/states, translated triggers and all assets", async () => {
   const manifest = JSON.parse(await readFile(resolve(pluginRoot, "manifest.json"), "utf8"));
-  assert.equal(manifest.Version, "1.5.0.0");
+  assert.equal(manifest.Version, "1.6.0.0");
   // The actual static previews and runtime rendering share the same geometry.
   const samples = [
     ["mic/on", micSvg("on", strings.en)],
@@ -135,7 +135,7 @@ test("thirteen manifest actions have required controllers/states, translated tri
     }
   }
   assert.notEqual(glyph("plugin-group-all"), glyph("plugin-group"), "Distinct white menu glyph");
-  assert.deepEqual(manifest.Actions.map((a: any) => a.UUID), ["mic", "fx", "all-mics", "mic-mute-group", "fx-mute-group", "mic-mute-all", "fx-mute-all", "plugin-group", "plugin-group-all", "plugin-window", "fx-send", "fx-send-step", "status"].map(id => `com.gomtwigim.livemix.${id}`));
+  assert.deepEqual(manifest.Actions.map((a: any) => a.UUID), ["mic", "fx", "all-mics", "mic-mute-group", "fx-mute-group", "mic-mute-all", "fx-mute-all", "plugin-group", "plugin-group-master", "plugin-group-all", "plugin-window", "fx-send", "fx-send-step", "status"].map(id => `com.gomtwigim.livemix.${id}`));
   const ko = JSON.parse(await readFile(resolve(pluginRoot, "ko.json"), "utf8")), en = JSON.parse(await readFile(resolve(pluginRoot, "en.json"), "utf8"));
   assert.deepEqual(Object.keys(ko.Localization).sort(), Object.keys(en.Localization).sort());
   for (const a of manifest.Actions) {

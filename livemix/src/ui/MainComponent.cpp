@@ -51,6 +51,7 @@ MainComponent::MainComponent (MixDocument& doc, LiveMixSettings& s, ObsPluginAct
 
     addAndMakeVisible (masterCard);
     masterCard.onOpenChain = [this] { openChainFor (&engine.getMasterChain(), tr ("마스터")); };
+    masterCard.onOpenPluginGroups = [this] { showPluginGroups (juce::Uuid::null()); };
     masterCard.onAddPlugin = [this] { addPluginTo (&engine.getMasterChain(), tr ("마스터"), &masterCard.getAddPluginButton()); };
     masterCard.onOpenLoudness = [this] { showLoudnessWindow(); };
     masterCard.onOpenRecording = [this] { showRecordingWindow(); };
@@ -1745,6 +1746,8 @@ void MainComponent::registerHotkeys()
     {
         setHotkey (fixedKeyFailures, firstPluginGroupHotkeyId + group - 1, settings.getPluginGroupHotkey (group),
                    trf ("플러그인 그룹 {0}", juce::String (group)));
+        setHotkey (fixedKeyFailures, firstMasterPluginGroupHotkeyId + group - 1, settings.getMasterPluginGroupHotkey (group),
+                   trf ("마스터 플러그인 그룹 {0}", juce::String (group)));
         setHotkey (fixedKeyFailures, firstPluginGroupWindowHotkeyId + group - 1, settings.getPluginGroupWindowHotkey (group),
                    trf ("플러그인 그룹 {0} 화면", juce::String (group)));
     }
@@ -1798,6 +1801,19 @@ void MainComponent::togglePluginGroupEverywhere (int group)
     }
 
     showStatus (trf ("플러그인 그룹 {0}{1}  (마이크 {2}개)", juce::String (group + 1), (switchedOff ? tr (" 끔") : tr (" 켬")), juce::String (channels)));
+}
+
+void MainComponent::toggleMasterPluginGroup (int group)
+{
+    const auto& groups = document.getSession().master.pluginGroups;
+    if (group < 0 || group >= (int) groups.size())
+    {
+        showStatus (trf ("마스터에 플러그인 그룹 {0}이(가) 없습니다 (마스터 카드의 '플러그인 그룹'에서 만듭니다)", group + 1), true);
+        return;
+    }
+    const bool off = ! groups[(size_t) group].off;
+    document.setMasterPluginGroupOff (group, off);
+    showStatus (trf ("마스터 플러그인 그룹 {0}{1}", group + 1, off ? tr (" 끔") : tr (" 켬")));
 }
 
 void MainComponent::sendPluginWindowMouseInput()
@@ -1974,7 +1990,11 @@ void MainComponent::hotkeyPressed (int id)
             {
                 togglePluginGroupEverywhere (id - firstPluginGroupHotkeyId);
             }
-            else if (id >= firstPluginGroupWindowHotkeyId && id <= lastHotkeyId)
+            else if (id >= firstMasterPluginGroupHotkeyId && id <= lastHotkeyId)
+            {
+                toggleMasterPluginGroup (id - firstMasterPluginGroupHotkeyId);
+            }
+            else if (id >= firstPluginGroupWindowHotkeyId && id < firstMasterPluginGroupHotkeyId)
             {
                 togglePluginGroupWindows (id - firstPluginGroupWindowHotkeyId);
             }

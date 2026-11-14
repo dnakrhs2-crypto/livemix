@@ -67,6 +67,11 @@ for (const scale of [1, 2]) {
   await asset("category" + suffix + ".svg", categorySvg(28 * scale) + "\n");
   for (const a of actions) {
     const directory = "actions/" + a.id + "/";
+    if (a.id === "plugin-group-master") {
+      for (const name of ["icon", "disconnected", ...Object.keys(states("plugin-group", size))])
+        await asset(directory + name + suffix + ".svg", await readFile(resolve(design, "actions/plugin-group/" + name + suffix + ".svg")));
+      continue;
+    }
     await asset(directory + "icon" + suffix + ".svg", svgDocument(20 * scale, glyph(a.id), 24) + "\n");
     for (const [name, body] of Object.entries(states(a.id, size))) await asset(directory + name + suffix + ".svg", body + "\n");
     await asset(directory + "disconnected" + suffix + ".svg", micSvg("disconnected", en, false, a.id.startsWith("fx-send"), size) + "\n");

@@ -66,6 +66,16 @@ public:
 
     void runTest() override
     {
+        beginTest ("master plugin group command uses a one-based index and a boolean off");
+        {
+            for (int index : { 1, 5 })
+                expect (std::holds_alternative<P::ClientMessage> (P::validate (juce::JSON::parse (
+                    command ("setMasterPluginGroupOff", "{\"index\":" + std::to_string (index) + ",\"off\":true}")))));
+            for (const auto* args : { "{}", "{\"index\":0,\"off\":true}", "{\"index\":6,\"off\":false}",
+                                     "{\"index\":1,\"off\":1}", "{\"index\":1.5,\"off\":false}" })
+                invalid (juce::JSON::parse (command ("setMasterPluginGroupOff", args)));
+        }
+
         beginTest ("UTF-8, escaped strings, every split position, LF/CRLF and multiple lines in one read");
         {
             const std::string line = u8"{\"name\":\"곰 방송 😀\",\"escaped\":\"a\\n\\\"[{}]\\\\z\"}";
@@ -128,7 +138,7 @@ public:
             expectEquals ((int) decoder.bufferedBytes(), 0);
         }
 
-        beginTest ("all fifteen commands, hello negotiation, ping and session-free requestState have typed values");
+        beginTest ("all sixteen commands, hello negotiation, ping and session-free requestState have typed values");
         {
             const std::string channel = "\"channelId\":\"11111111111141118111111111111111\"";
             const std::string fx = "\"fxId\":\"22222222222242228222222222222222\"";
@@ -142,6 +152,7 @@ public:
                 { "toggleFx", "{" + fx + "}" }, { "setFxOn", "{" + fx + ",\"on\":false}" },
                 { "toggleMuteAll", "{\"group\":\"mic\"}" }, { "setMuteAll", "{\"group\":\"fx\",\"muted\":false}" },
                 { "togglePluginGroupWindows", "{\"index\":1}" }, { "setPluginGroupWindows", "{\"index\":5," + channel + ",\"open\":false}" },
+                { "setMasterPluginGroupOff", "{\"index\":3,\"off\":true}" },
                 { "requestState", "{}" }
             };
             for (size_t i = 0; i < std::size (commands); ++i)
@@ -526,12 +537,13 @@ public:
             expectEquals (hello["type"].toString(), juce::String ("helloAck"));
             expectEquals (hello["server"]["version"].toString(), juce::String ("0.5.3"));
             expectEquals ((int) hello["v"], 1);
-            expectEquals (hello["capabilities"].size(), 9);
+            expectEquals (hello["capabilities"].size(), 10);
             expectEquals (hello["capabilities"][4].toString(), juce::String ("sends"));
             expectEquals (hello["capabilities"][5].toString(), juce::String ("pluginGroupsEverywhere"));
             expectEquals (hello["capabilities"][6].toString(), juce::String ("fxOn"));
             expectEquals (hello["capabilities"][7].toString(), juce::String ("muteAll"));
             expectEquals (hello["capabilities"][8].toString(), juce::String ("pluginGroupWindows"));
+            expectEquals (hello["capabilities"][9].toString(), juce::String ("masterPluginGroups"));
             expectEquals ((int) hello["eventIntervalMs"], 100); expectEquals ((int) hello["heartbeatIntervalMs"], 5000);
             P::Projection projection;
             projection.session.name = juce::String::fromUTF8 ("곰 \"방송\"\n");

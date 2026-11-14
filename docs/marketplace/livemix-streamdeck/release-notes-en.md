@@ -1,3 +1,10 @@
+# LiveMix 1.6.0
+
+- Added Plugin Group (Master) to toggle, turn on or turn off plugin group 1-5 on the LiveMix master card, including in Multi Actions.
+- Master groups are separate from microphone groups: Plugin Group (All Mics) does not change them, and this key does not change microphone groups.
+- A missing master group shows the existing missing feedback and an alert on press.
+- This key requires LiveMix 0.23.0+ with External Control enabled. Older versions show an update message and send no command. Existing action requirements are unchanged.
+
 # LiveMix 1.5.0
 
 - Added Plugin Group Windows to open or close the plugin windows of a numbered plugin group, like LiveMix's Plugin group 1–5 windows hotkeys. Choose all mics or one mic, the group and Open/Close, Open or Close, including in Multi Actions.

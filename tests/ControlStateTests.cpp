@@ -67,6 +67,33 @@ public:
 
     void runTest() override
     {
+        beginTest ("master groups publish full lists, OFF deltas and structural changes independently of microphones");
+        {
+            Fixture f;
+            ControlState state (f.capture());
+            auto before = state.getCurrent();
+            f.document.addMasterPluginGroup();
+            expect (state.update (f.capture()));
+            expect (ControlState::diff (before, state.getCurrent()).kind == ControlState::ChangeKind::structure);
+            before = state.getCurrent();
+            auto full = P::toVar (before.projection);
+            expectEquals (full["master"]["pluginGroups"].size(), 1);
+            expectEquals ((int) full["master"]["pluginGroups"][0]["index"], 1);
+            f.document.setMasterPluginGroupOff (0, true);
+            expect (state.update (f.capture()));
+            const auto delta = ControlState::diff (before, state.getCurrent());
+            expect (delta.kind == ControlState::ChangeKind::values);
+            const auto patch = P::toVar (delta.changes);
+            expect (! patch.hasProperty ("channels"));
+            expect ((bool) patch["master"]["pluginGroups"][0]["off"]);
+            merge (full, patch);
+            expectEquals (juce::JSON::toString (full), juce::JSON::toString (P::toVar (state.getCurrent().projection)));
+            before = state.getCurrent();
+            f.document.removeMasterPluginGroup (0);
+            expect (state.update (f.capture()));
+            expect (ControlState::diff (before, state.getCurrent()).kind == ControlState::ChangeKind::structure);
+        }
+
         beginTest ("capture owns the complete public projection in UI order and does not mutate or expose private state");
         {
             Fixture f;
@@ -101,14 +128,16 @@ public:
             expectWithinAbsoluteError (p.fx[0].returnAmount, 0.8, 1.0e-12);
             expect (! p.fx[0].on && p.fx[1].on);
             const auto json = P::toVar (p);
-            expectEquals (json.getDynamicObject()->getProperties().size(), 6);
+            expectEquals (json.getDynamicObject()->getProperties().size(), 7);
             expectEquals (json["channels"][0].getDynamicObject()->getProperties().size(), 7);
             expect (json["channels"][0]["pan"].isDouble());
             expectWithinAbsoluteError ((double) json["channels"][0]["pan"], -0.3, 1e-12);
             expectWithinAbsoluteError (p.channels[0].pan, -0.3, 1e-12);
             expectWithinAbsoluteError (p.channels[1].pan, 0.0, 1e-12);
             expectEquals (json["fx"][0].getDynamicObject()->getProperties().size(), 5);
-            expect (! json.hasProperty ("file") && ! json.hasProperty ("device") && ! json.hasProperty ("master"));
+            expect (! json.hasProperty ("file") && ! json.hasProperty ("device"));
+            expectEquals (json["master"].getDynamicObject()->getProperties().size(), 1);
+            expect (json["master"]["pluginGroups"].isArray());
             expect (! json["channels"][0].hasProperty ("chain"));
             f.document.renameChannel (f.channel(), "Later"); f.document.removeFx (secondFx);
             expectEquals (p.channels[0].name, juce::String ("Mic A")); expectEquals ((int) p.fx.size(), 2);   // owned snapshot

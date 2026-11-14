@@ -1,13 +1,14 @@
-# LiveMix Stream Deck 1.5.0
+# LiveMix Stream Deck 1.6.0
 
-Windows release `com.gomtwigim.livemix`, manifest version `1.5.0.0`
-(npm package `1.5.0`). Requires LiveMix 0.6.0+ on Windows 10/11 x64;
+Windows release `com.gomtwigim.livemix`, manifest version `1.6.0.0`
+(npm package `1.6.0`). Requires LiveMix 0.6.0+ on Windows 10/11 x64;
 the **Plugin Group (All Mics)** key requires **LiveMix 0.10.0+**, and
 the **FX On/Off** key requires **LiveMix 0.16.0+**.
 **Mute All Mics** and **Mute All FX** require **LiveMix 0.18.0+**.
 **Plugin Group Windows** requires **LiveMix 0.22.0+**.
+**Plugin Group (Master)** requires **LiveMix 0.23.0+**.
 The other eight actions still work with LiveMix 0.6.0+.
-This package implements thirteen actions, a shared LiveMix connection and a
+This package implements fourteen actions, a shared LiveMix connection and a
 hardware-free test harness. Node 24 and Stream Deck 7.1+ are the runtime baseline.
 It does not install, launch or change LiveMix or Stream Deck profiles.
 
@@ -26,7 +27,7 @@ npm.cmd run pack -- -f
 The build commands require the prepared dependency directory; retain it and the
 existing lockfile. Do not run npm install or rewrite package-lock.json for
 this release. Its preview package metadata is intentionally retained under that
-constraint; package.json, manifest and runtime hello advertise 1.5.0.
+constraint; package.json, manifest and runtime hello advertise 1.6.0.
 All direct dependencies use exact versions.
 The test script builds the actual distributable first, compiles the TypeScript
 tests with `tsconfig.test.json`, then runs `node:test` serially. No physical Stream
@@ -71,6 +72,7 @@ the new artwork and physical Stream Deck + remain separate visual/device checks.
 | Mute All Mics / 마이크 전체 뮤트 | LiveMix 0.18.0+. Toggle / Mute / Unmute every microphone, matching the top bar Mic Mute button without group marks. Plain mic glyph, red slash when muted (state 1), green when clear (state 0), total microphone count and stopped-audio badge. |
 | Mute All FX / FX 전체 뮤트 | LiveMix 0.18.0+. Toggle / Mute / Unmute every FX channel, matching the top bar FX Mute button without group marks. Same states, with a plain FX glyph and total FX count. |
 | Plugin Group | Toggle / ON / OFF an existing numbered slot. Deleted slots show Group missing. Deleting earlier groups shifts later numbers. |
+| Plugin Group (Master) / 플러그인 그룹 (마스터) | LiveMix 0.23.0+. Toggle / ON / OFF master plugin group 1-5. Separate from the microphone groups: Plugin Group (All Mics) and the microphone group hotkeys never change it, and it never changes a microphone group. Same artwork as Plugin Group (ON state 1, OFF state 0) with the title `Master · Group N` / `마스터 · 그룹 N`; a missing group shows Group missing and alerts on press. Multi Actions supported. |
 | Plugin Group (All Mics) / 플러그인 그룹 (전체 마이크) | LiveMix 0.10.0+. Switch slot 1–5 across every microphone that has it. Toggle: any ON → all OFF; all OFF → all ON. ON/OFF modes set every matching group explicitly. Accent All ON (state 1), red All OFF or warning Some ON (state 0), group digit and ON/total count; stopped-audio badge remains visible. No matching group → Group missing and no command. |
 | Plugin Group Windows / 플러그인 그룹 화면 | LiveMix 0.22.0+. Toggle / Open / Close the plugin windows in group 1–5 across all microphones (default) or one microphone. Toggle closes the target windows if any is in use, otherwise opens them. The windows come forward even when LiveMix is minimized or in the tray. Shows the configured action and group number, always state 0, with the stopped-audio badge. |
 | FX Send Amount (Encoder only) | Rotate adjusts amount by 1% (default) or 5% per tick, clamped to 0–100%. Down only records the press; release within 600 ms without rotation toggles pre/post when enabled. Rotating while pressed changes amount only. Long press, tap and long touch issue no command. |
@@ -111,6 +113,11 @@ Group choices combine the slots on all microphones and show the number of
 microphones with each slot. The default title is `All mics · Group N` /
 `전체 마이크 · 그룹 N`. Without the `pluginGroupsEverywhere` capability,
 the key displays the existing update-LiveMix message and never sends this command.
+
+Plugin Group (Master) exposes group, mode and display name in its PI; the group
+list shows the master's groups and the note says it switches only the master's
+group. Without the `masterPluginGroups` capability, the key displays the existing
+update-LiveMix message and never sends this command.
 
 Plugin Group Windows reuses the microphone, group, mode and display-name fields.
 The first microphone choice is All mics; its group list combines existing slots
@@ -220,6 +227,11 @@ The all-mics group key queues by `plugin-group-all/<index>` and sends
 `ifRevision`. Channels without that slot are skipped. Its ACK contains
 `{ index, off, count }`; only the normal `channels[].pluginGroups` state update
 changes the displayed values.
+
+The master group key queues by `plugin-group-master/<index>` and sends
+`setMasterPluginGroupOff { index, off }` with the current session, computed from
+the latest state like the other group keys. Its ACK contains `{ index, off }`;
+only the `master.pluginGroups` state update changes the displayed values.
 
 Plugin Group Windows queues by `plugin-window/<all|channelId>/<index>` and sends
 `togglePluginGroupWindows { index, channelId? }` or

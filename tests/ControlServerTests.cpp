@@ -285,10 +285,11 @@ public:
         expectEquals (hello["type"].toString(), juce::String ("helloAck"));
         expectEquals (hello["server"]["version"].toString(),
                       f.options.appVersion.isEmpty() ? appVersionString() : f.options.appVersion);
-        expectEquals (hello["capabilities"].size(), 9);
+        expectEquals (hello["capabilities"].size(), 10);
         expectEquals (hello["capabilities"][6].toString(), juce::String ("fxOn"));
         expectEquals (hello["capabilities"][7].toString(), juce::String ("muteAll"));
         expectEquals (hello["capabilities"][8].toString(), juce::String ("pluginGroupWindows"));
+        expectEquals (hello["capabilities"][9].toString(), juce::String ("masterPluginGroups"));
         c.initial = c.take ("state");
         expectEquals (c.initial["reason"].toString(), juce::String ("initial"));
         c.instance = hello["instanceId"].toString(); c.session = c.initial["sessionId"].toString();
@@ -309,6 +310,7 @@ public:
         fxOnOff();
         muteAll();
         pluginGroupWindows();
+        masterPluginGroups();
         duplicates();
         clientLimits();
         queueLimits();
@@ -463,6 +465,33 @@ public:
         expect (session["sessionId"].toString() != oldSession);
         expect (! (bool) session["state"]["muteGroups"]["mic"]);
         expect (f.allOnMessageThread);
+    }
+
+    void masterPluginGroups()
+    {
+        beginTest ("master groups over loopback advertise capability, publish state and delta, and reject missing groups");
+        Fixture f;
+        f.document.addMasterPluginGroup();
+        f.document.addPluginGroup (f.document.getSession().channels[0].id);
+        if (! start (f)) return;
+        Client c;
+        if (! authenticate (f, c)) return;
+        expectEquals (c.initial["state"]["master"]["pluginGroups"].size(), 1);
+        auto args = object(); put (args, "index", 1); put (args, "off", true);
+        expect (c.send (c.command (2, "setMasterPluginGroupOff", args)));
+        const auto ack = c.take ("ack", "2");
+        expect ((bool) ack["changed"] && (bool) ack["result"]["off"]);
+        const auto delta = c.take ("stateDelta");
+        expect ((bool) delta["changes"]["master"]["pluginGroups"][0]["off"]);
+        expect (! delta["changes"].hasProperty ("channels"));
+        expect (! f.document.getSession().channels[0].pluginGroups[0].off);
+        put (args, "index", 5);
+        expect (c.send (c.command (3, "setMasterPluginGroupOff", args)));
+        code (c.take ("error", "3"), "PLUGIN_GROUP_NOT_FOUND");
+        f.document.removeMasterPluginGroup (0);
+        const auto removed = c.take ("state");
+        expectEquals (removed["reason"].toString(), juce::String ("structureChanged"));
+        expectEquals (removed["state"]["master"]["pluginGroups"].size(), 0);
     }
 
     void fxOnOff()

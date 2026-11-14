@@ -203,6 +203,7 @@ namespace
             hotkeyNote.setText (hotkeyNote.getText() + " " + tr ("플러그인 그룹 화면 핫키는 그 번호의 그룹에 넣은 플러그인의 화면을 열고 닫습니다."),
                                 juce::dontSendNotification);
             hotkeyNote.setFont (bodyFont (12.5f));
+            hotkeyNote.setText (hotkeyNote.getText() + " " + tr ("마스터 플러그인 그룹 핫키는 마스터의 그 번호 그룹만 껐다 켭니다."), juce::dontSendNotification);
             addAndMakeVisible (hotkeyNote);
 
             auto& prefs = settings;   // 'settings' is a reference member; the lambdas below keep it by name
@@ -219,6 +220,15 @@ namespace
                 addFixedRow (groupHotkeyLabel[i], trf ("플러그인 그룹 {0}", juce::String (group)), groupHotkey[i], groupHotkeyClear[i],
                              [&prefs, group] { return prefs.getPluginGroupHotkey (group); },
                              [&prefs, group] (const juce::String& d) { prefs.setPluginGroupHotkey (group, d); });
+            }
+
+            for (int i = 0; i < MixSession::maxPluginGroups; ++i)
+            {
+                const int group = i + 1;
+                addFixedRow (masterGroupHotkeyLabel[i], trf ("마스터 플러그인 그룹 {0}", group), masterGroupHotkey[i], masterGroupHotkeyClear[i],
+                             [&prefs, group] { return prefs.getMasterPluginGroupHotkey (group); },
+                             [&prefs, group] (const juce::String& d) { prefs.setMasterPluginGroupHotkey (group, d); });
+                masterGroupHotkey[i].setComponentID ("hotkey-master-group-" + juce::String (group));
             }
 
             // the same groups' plugin windows (their editors), opened / closed: a block of its own after the ON/OFF keys
@@ -1005,14 +1015,17 @@ namespace
         juce::Label bitDepthCaption, bitDepthDetail, bitDepthHint, bitDepthWarning;
         juce::Label groupHotkeyLabel[MixSession::maxPluginGroups];
         juce::Label groupWindowHotkeyLabel[MixSession::maxPluginGroups];
+        juce::Label masterGroupHotkeyLabel[MixSession::maxPluginGroups];
         juce::Label controlCaption, controlNote, controlAddress, controlState;
         juce::HyperlinkButton controlHelp;
         HotkeyButton micHotkey, fxHotkey, windowHotkey, micAllHotkey, fxAllHotkey;
         HotkeyButton groupHotkey[MixSession::maxPluginGroups];
         HotkeyButton groupWindowHotkey[MixSession::maxPluginGroups];
+        HotkeyButton masterGroupHotkey[MixSession::maxPluginGroups];
         juce::TextButton micHotkeyClear { "x" }, fxHotkeyClear { "x" }, windowHotkeyClear { "x" }, micAllHotkeyClear { "x" }, fxAllHotkeyClear { "x" };
         juce::TextButton groupHotkeyClear[MixSession::maxPluginGroups];
         juce::TextButton groupWindowHotkeyClear[MixSession::maxPluginGroups];
+        juce::TextButton masterGroupHotkeyClear[MixSession::maxPluginGroups];
         RepickComboBox typeCombo, deviceCombo, outputCombo, rateCombo, bufferCombo, bitDepthCombo;
         juce::ComboBox languageCombo;
         juce::TextButton panelButton, soundSettingsButton;

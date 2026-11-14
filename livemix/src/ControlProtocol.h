@@ -49,6 +49,7 @@ public:
     struct SetMuteGroup { MuteGroup group = MuteGroup::mic; bool muted = false; };
     struct SetPluginGroupOff { juce::Uuid channelId; int index = 1; bool off = false; };
     struct SetPluginGroupOffEverywhere { int index = 1; bool off = false; };
+    struct SetMasterPluginGroupOff { int index = 1; bool off = false; };
     struct SetSend { juce::Uuid channelId, fxId; std::optional<double> amount; std::optional<bool> pre; };
     struct ToggleFx { juce::Uuid fxId; };
     struct SetFxOn { juce::Uuid fxId; bool on = false; };
@@ -59,7 +60,7 @@ public:
     struct RequestState {};
     using CommandArgs = std::variant<SetChannelOn, ToggleChannel, SetAllChannelsOn, ToggleMuteGroup,
                                      SetMuteGroup, SetPluginGroupOff, SetPluginGroupOffEverywhere, SetSend, ToggleFx, SetFxOn,
-                                     ToggleMuteAll, SetMuteAll, TogglePluginGroupWindows, SetPluginGroupWindows, RequestState>;
+                                     ToggleMuteAll, SetMuteAll, TogglePluginGroupWindows, SetPluginGroupWindows, SetMasterPluginGroupOff, RequestState>;
     struct Command
     {
         juce::String id;
@@ -153,10 +154,11 @@ public:
         bool micMuted = false, fxMuted = false;
         // Additive v1 field: older clients may ignore muteAll; absent on older servers means both false.
         bool allMicsMuted = false, allFxMuted = false;
+        std::vector<PluginGroup> masterPluginGroups;
         bool operator== (const Projection& o) const
         {
-            return std::tie (session, audioRunning, channels, fx, micMuted, fxMuted, allMicsMuted, allFxMuted)
-                == std::tie (o.session, o.audioRunning, o.channels, o.fx, o.micMuted, o.fxMuted, o.allMicsMuted, o.allFxMuted);
+            return std::tie (session, audioRunning, channels, fx, micMuted, fxMuted, allMicsMuted, allFxMuted, masterPluginGroups)
+                == std::tie (o.session, o.audioRunning, o.channels, o.fx, o.micMuted, o.fxMuted, o.allMicsMuted, o.allFxMuted, o.masterPluginGroups);
         }
     };
     struct ChannelChanges
@@ -183,6 +185,7 @@ public:
         std::optional<juce::String> sessionName;
         std::optional<bool> sessionDirty, audioRunning, micMuted, fxMuted;
         std::optional<bool> allMicsMuted, allFxMuted;
+        std::optional<std::vector<PluginGroup>> masterPluginGroups;
         std::vector<ChannelChanges> channels;
         std::vector<FxChanges> fx;
         bool empty() const;

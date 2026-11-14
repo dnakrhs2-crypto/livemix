@@ -403,43 +403,58 @@ void MixDocument::setSendToObs (bool enabled)
     valueChanged();
 }
 
+std::vector<MixPluginGroup>* MixDocument::pluginGroupsFor (const juce::Uuid& channelId)
+{
+    if (channelId.isNull()) return &session.master.pluginGroups;
+    if (auto* channel = session.findChannel (channelId)) return &channel->pluginGroups;
+    return nullptr;
+}
+
+PluginChain* MixDocument::groupChain (const juce::Uuid& channelId) const
+{
+    return channelId.isNull() ? &engine.getMasterChain() : engine.getChannelChain (channelId);
+}
+
 int MixDocument::addPluginGroup (const juce::Uuid& channelId)
 {
-    auto* c = session.findChannel (channelId);
+    auto* groups = pluginGroupsFor (channelId);
 
-    if (c == nullptr || (int) c->pluginGroups.size() >= MixSession::maxPluginGroups)
+    if (groups == nullptr || (int) groups->size() >= MixSession::maxPluginGroups)
         return -1;
 
-    c->pluginGroups.push_back ({});
+    const ValueBatch batch (*this);
+    groups->push_back ({});
     valueChanged();
-    return (int) c->pluginGroups.size() - 1;
+    return (int) groups->size() - 1;
 }
 
 void MixDocument::removePluginGroup (const juce::Uuid& channelId, int group)
 {
-    auto* c = session.findChannel (channelId);
+    auto* groups = pluginGroupsFor (channelId);
 
-    if (c == nullptr || group < 0 || group >= (int) c->pluginGroups.size())
+    if (groups == nullptr || group < 0 || group >= (int) groups->size())
         return;
 
-    if (c->pluginGroups[(size_t) group].off)
-        for (const auto& slotId : c->pluginGroups[(size_t) group].slots)
-            if (! heldOffElsewhere (*c, slotId, group))
+    const ValueBatch batch (*this);
+    if ((*groups)[(size_t) group].off)
+        for (const auto& slotId : (*groups)[(size_t) group].slots)
+            if (! heldOffElsewhere (*groups, slotId, group))
                 bypassSlot (channelId, slotId, false);   // a group that was off does not leave its plugins off behind it (unless another OFF group holds them)
 
-    c->pluginGroups.erase (c->pluginGroups.begin() + group);
+    groups->erase (groups->begin() + group);
     valueChanged();
 }
 
 void MixDocument::setPluginGroupMember (const juce::Uuid& channelId, int group, const juce::Uuid& slotId, bool member)
 {
-    auto* c = session.findChannel (channelId);
+    auto* groups = pluginGroupsFor (channelId);
 
-    if (c == nullptr || group < 0 || group >= (int) c->pluginGroups.size() || slotId.isNull())
+    if (groups == nullptr || group < 0 || group >= (int) groups->size() || slotId.isNull())
         return;
 
-    auto& g = c->pluginGroups[(size_t) group];
+    auto& g = (*groups)[(size_t) group];
     const auto it = std::find (g.slots.begin(), g.slots.end(), slotId);
+    const ValueBatch batch (*this);
 
     if (member && it == g.slots.end())
     {
@@ -455,7 +470,7 @@ void MixDocument::setPluginGroupMember (const juce::Uuid& channelId, int group, 
     {
         g.slots.erase (it);
 
-        if (g.off && ! heldOffElsewhere (*c, slotId, group))
+        if (g.off && ! heldOffElsewhere (*groups, slotId, group))
             bypassSlot (channelId, slotId, false);
     }
     else
@@ -468,12 +483,12 @@ void MixDocument::setPluginGroupMember (const juce::Uuid& channelId, int group, 
 
 void MixDocument::setPluginGroupOff (const juce::Uuid& channelId, int group, bool off)
 {
-    auto* c = session.findChannel (channelId);
+    auto* groups = pluginGroupsFor (channelId);
 
-    if (c == nullptr || group < 0 || group >= (int) c->pluginGroups.size())
+    if (groups == nullptr || group < 0 || group >= (int) groups->size())
         return;
 
-    auto& g = c->pluginGroups[(size_t) group];
+    auto& g = (*groups)[(size_t) group];
     const bool changed = g.off != off;
     const ValueBatch batch (*this);
     g.off = off;
@@ -484,22 +499,22 @@ void MixDocument::setPluginGroupOff (const juce::Uuid& channelId, int group, boo
         // group's existing intent, so those notifications must not turn a protocol no-op into an edit.
         const juce::ScopedValueSetter<bool> repairScope (repairingGroupBypass, ! changed);
         for (const auto& slotId : g.slots)
-            if (off || ! heldOffElsewhere (*c, slotId, group))
+            if (off || ! heldOffElsewhere (*groups, slotId, group))
                 runtimeChanged = bypassSlot (channelId, slotId, off) || runtimeChanged;
     }
 
     if (changed)
         valueChanged();
     else if (runtimeChanged && onChainRuntimeChanged)
-        if (auto* chain = engine.getChannelChain (channelId))
+        if (auto* chain = groupChain (channelId))
             onChainRuntimeChanged (*chain);
 }
 
-bool MixDocument::heldOffElsewhere (const MixChannel& channel, const juce::Uuid& slotId, int exceptGroup)
+bool MixDocument::heldOffElsewhere (const std::vector<MixPluginGroup>& groups, const juce::Uuid& slotId, int exceptGroup)
 {
-    for (size_t i = 0; i < channel.pluginGroups.size(); ++i)
+    for (size_t i = 0; i < groups.size(); ++i)
     {
-        const auto& other = channel.pluginGroups[i];
+        const auto& other = groups[i];
 
         if ((int) i != exceptGroup && other.off && std::find (other.slots.begin(), other.slots.end(), slotId) != other.slots.end())
             return true;
@@ -510,7 +525,7 @@ bool MixDocument::heldOffElsewhere (const MixChannel& channel, const juce::Uuid&
 
 bool MixDocument::liveChainHas (const juce::Uuid& channelId, const juce::Uuid& slotId) const
 {
-    const auto* chain = engine.getChannelChain (channelId);
+    const auto* chain = groupChain (channelId);
 
     if (chain == nullptr)
         return false;
@@ -524,7 +539,7 @@ bool MixDocument::liveChainHas (const juce::Uuid& channelId, const juce::Uuid& s
 
 bool MixDocument::bypassSlot (const juce::Uuid& channelId, const juce::Uuid& slotId, bool bypass)
 {
-    auto* chain = engine.getChannelChain (channelId);
+    auto* chain = groupChain (channelId);
 
     if (chain == nullptr)
         return false;
@@ -596,29 +611,32 @@ juce::StringArray MixDocument::applyPluginSet (PluginChain& chain, const PluginS
             break;
         }
 
-    const auto plan = planPluginSet (set, channel, session.fx);
+    auto* master = &chain == &engine.getMasterChain() ? &session.master : nullptr;
+    const auto plan = planPluginSet (set, channel, session.fx, master);
     const ValueBatch batch (*this);
     auto errors = chain.restore (plan.plugins, engine.getPluginHost().makeFactory (engine.getSampleRate(), engine.getBlockSize()));
 
-    if (channel != nullptr)
+    if (channel != nullptr || master != nullptr)
     {
+        auto& groups = channel != nullptr ? channel->pluginGroups : master->pluginGroups;
+        const auto id = channel != nullptr ? channel->id : juce::Uuid::null();
         if (plan.groups)
         {
-            channel->pluginGroups = *plan.groups;
-            for (auto& group : channel->pluginGroups)
+            groups = *plan.groups;
+            for (auto& group : groups)
             {
                 // Check the actual published slots too (restore repairs duplicate/null IDs).
-                group.slots.erase (std::remove_if (group.slots.begin(), group.slots.end(), [&] (const auto& id)
+                group.slots.erase (std::remove_if (group.slots.begin(), group.slots.end(), [&] (const auto& slotId)
                 {
-                    return ! liveChainHas (channel->id, id);
+                    return ! liveChainHas (id, slotId);
                 }), group.slots.end());
                 if (group.off)
-                    for (const auto& id : group.slots)
-                        bypassSlot (channel->id, id, true);
+                    for (const auto& slotId : group.slots)
+                        bypassSlot (id, slotId, true);
             }
         }
         for (const auto& send : plan.sends.sends)
-            setSend (channel->id, send.fx, send.amount, send.pre);
+            setSend (id, send.fx, send.amount, send.pre);
         errors.addArray (plan.sends.warnings);
     }
 

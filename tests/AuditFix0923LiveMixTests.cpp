@@ -35,6 +35,16 @@ struct AuditFix0923RemoveSlot
     using Type = void (ChainDrawer::*) (int);
     friend Type auditMember (AuditFix0923RemoveSlot);
 };
+struct MasterApplySet
+{
+    using Type = void (ChainDrawer::*) (const PluginSet&);
+    friend Type auditMember (MasterApplySet);
+};
+struct MasterSaveSet
+{
+    using Type = void (ChainDrawer::*) (const PluginSetEntry&);
+    friend Type auditMember (MasterSaveSet);
+};
 struct AuditFix0923OpenChain
 {
     using Type = void (MainComponent::*) (PluginChain*, const juce::String&);
@@ -67,6 +77,8 @@ struct AuditFix0923Access
 };
 template struct AuditFix0923Access<AuditFix0923ApplyPreset, &ChainDrawer::applyPreset>;
 template struct AuditFix0923Access<AuditFix0923RemoveSlot, &ChainDrawer::removeSlot>;
+template struct AuditFix0923Access<MasterApplySet, &ChainDrawer::applySet>;
+template struct AuditFix0923Access<MasterSaveSet, &ChainDrawer::saveChainAsSet>;
 template struct AuditFix0923Access<AuditFix0923OpenChain, &MainComponent::openChainFor>;
 template struct AuditFix0923Access<AuditFix0923Status, &MainComponent::statusLeft>;
 template struct AuditFix0923Access<AuditFix0923Notice, &MainComponent::noticeText>;
@@ -231,7 +243,85 @@ public:
     AuditFix0923LiveMixTests() : UnitTest ("AuditFix0923 LiveMix", "LiveMix") {}
     void runTest() override
     {
+        beginTest ("master presets retain OFF intent on replacement and keep duplicate appends outside the group");
+        {
+            AuditFix0923Fixture f;
+            auto& chain = f.engine.getMasterChain();
+            chain.addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            PluginPreset preset;
+            preset.plugins = chain.getStates();
+            preset.plugins[0].bypassed = false;
+            f.document.addMasterPluginGroup();
+            f.document.setMasterPluginGroupMember (0, chain.getSlot (0).state.slotId, true);
+            f.document.setMasterPluginGroupOff (0, true);
+            (f.main.get()->*auditMember (AuditFix0923OpenChain {})) (&chain, "Master");
+            auto* drawer = auditChild<ChainDrawer> (*f.main, [] (const auto&) { return true; });
+            expect (drawer != nullptr);
+            if (drawer != nullptr)
+            {
+                (drawer->*auditMember (AuditFix0923ApplyPreset {})) (preset, true);
+                expect (chain.getSlot (0).bypassed.load());
+                (drawer->*auditMember (AuditFix0923ApplyPreset {})) (preset, false);
+                expectEquals (chain.getNumSlots(), 2);
+                expect (chain.getSlot (0).bypassed.load());
+                expect (! chain.getSlot (1).bypassed.load());
+                expect (chain.getSlot (0).state.slotId != chain.getSlot (1).state.slotId);
+            }
+        }
+        beginTest ("master set save shows only groups; master and FX status suffixes follow their targets");
+        {
+            AuditFix0923Fixture f;
+            auto& chain = f.engine.getMasterChain();
+            chain.addPlugin (std::make_unique<TestGainPlugin> (0.5f));
+            f.document.addMasterPluginGroup();
+            f.document.setMasterPluginGroupMember (0, chain.getSlot (0).state.slotId, true);
+            (f.main.get()->*auditMember (AuditFix0923OpenChain {})) (&chain, "Master");
+            auto* drawer = auditChild<ChainDrawer> (*f.main, [] (const auto&) { return true; });
+            expect (drawer != nullptr);
+            if (drawer != nullptr)
+            {
+                PluginSetEntry entry;
+                (drawer->*auditMember (MasterSaveSet {})) (entry);
+                auto* alert = dynamic_cast<juce::AlertWindow*> (juce::Component::getCurrentlyModalComponent());
+                expect (alert != nullptr);
+                if (alert != nullptr)
+                {
+                    expectEquals (alert->getNumCustomComponents(), 1);
+                    auto* groups = dynamic_cast<juce::ToggleButton*> (alert->getCustomComponent (0));
+                    expect (groups != nullptr && groups->getButtonText() == tr ("플러그인 그룹도 저장") && groups->getToggleState());
+                    juce::Component::SafePointer<juce::AlertWindow> closed (alert);
+                    alert->exitModalState (0);   // cancel: never access the user's set folder
+                    expect (auditUntil ([&] { return closed == nullptr; }));
+                }
+                PluginSet set;
+                set.plugins = chain.getStates();
+                set.groups = f.document.getSession().master.pluginGroups;
+                (drawer->*auditMember (MasterApplySet {})) (set);
+                expectEquals (auditStatus (*f.main), trf ("세트 {0} 불러옴: {1}{2}", "1", set.summary(), juce::String()));
+                set.sends = std::vector<PluginSetSend>();
+                (drawer->*auditMember (MasterApplySet {})) (set);
+                expect (auditStatus (*f.main).endsWith (tr (" (마스터에는 FX 센드값을 넣지 않았습니다)")));
+                auto* fx = f.engine.getFxChain (f.document.getSession().fx[0].id);
+                (f.main.get()->*auditMember (AuditFix0923OpenChain {})) (fx, "FX");
+                set.groups.reset(); set.sends.reset();
+                (drawer->*auditMember (MasterApplySet {})) (set);
+                expectEquals (auditStatus (*f.main), trf ("세트 {0} 불러옴: {1}{2}", "1", set.summary(), juce::String()));
+                for (const int savedParts : { 1, 2, 3 })
+                {
+                    set.groups.reset(); set.sends.reset();
+                    if (savedParts & 1)
+                    {
+                        const auto& target = f.document.getSession().fx[0];
+                        set.sends = std::vector<PluginSetSend> { { target.id, target.name, 0.5, false } };
+                    }
+                    if (savedParts & 2) set.groups = f.document.getSession().master.pluginGroups;
+                    (drawer->*auditMember (MasterApplySet {})) (set);
+                    expect (auditStatus (*f.main).endsWith (tr (" (FX 체인에는 플러그인만 넣었습니다)")));
+                }
+            }
+        }
         appendDeletedOffPlugin();
+        appendDeletedOffMasterPlugin();
         for (const bool muteGroup : { false, true })
             for (const bool skip : { true, false })
                 resumeWithBypassedGain (skip, muteGroup);
@@ -247,6 +337,47 @@ private:
         if (! ok) logMessage ("REPRODUCTION UNAVAILABLE: " + reason);
         expect (ok, "Scenario prerequisite: " + reason);
         return ok;
+    }
+
+    void appendDeletedOffMasterPlugin()
+    {
+        beginTest ("master deleted preset member retains its group and returns bypassed while the group is OFF");
+        AuditFix0923Fixture f;
+        auto& chain = f.engine.getMasterChain();
+        chain.addPlugin (std::make_unique<TestGainPlugin> (2.0f));
+        const auto aId = chain.getSlot (0).state.slotId;
+        PluginPreset saved, preset;
+        saved.name = "Master";
+        bool complete = true;
+        saved.plugins = chain.getStates (&complete);
+        for (auto& slot : saved.plugins) slot.bypassed = false;
+        const auto file = f.directory.path.getChildFile ("Master.livemixpreset");
+        if (! prerequisite (complete && saved.save (file).wasOk() && PluginPreset::load (file, preset).wasOk(),
+                            "save/reload master preset in the isolated directory")) return;
+        chain.addPlugin (std::make_unique<TestGainPlugin> (1.0f));
+        const auto bId = chain.getSlot (1).state.slotId;
+        f.document.addMasterPluginGroup();
+        f.document.setMasterPluginGroupMember (0, aId, true);
+        f.document.setMasterPluginGroupOff (0, true);
+        (f.main.get()->*auditMember (AuditFix0923OpenChain {})) (&chain, "Master");
+        auto* drawer = auditChild<ChainDrawer> (*f.main, [] (const ChainDrawer&) { return true; });
+        if (! prerequisite (drawer != nullptr, "production master chain drawer exists")) return;
+        (drawer->*auditMember (AuditFix0923RemoveSlot {})) (0);
+        if (! prerequisite (auditUntil ([&] { return chain.getNumSlots() == 1; }), "drawer actually deleted master A")) return;
+        expect (chain.getSlot (0).state.slotId == bId);
+        expect (f.document.getSession().master.pluginGroups[0].slots == std::vector<juce::Uuid> { aId });
+        const auto generation = f.document.getSessionGeneration();
+        (drawer->*auditMember (AuditFix0923ApplyPreset {})) (preset, false);
+        if (! prerequisite (chain.getNumSlots() == 2 && chain.getSlot (1).plugin != nullptr
+                            && ! chain.getSlot (1).faulted.load(), "master A appended through PluginHost without fault")) return;
+        expect (chain.getSlot (0).state.slotId == bId);
+        expect (chain.getSlot (1).state.slotId == aId);
+        expect (f.document.getSessionGeneration() == generation);
+        const auto& group = f.document.getSession().master.pluginGroups[0];
+        expect (group.off && group.slots == std::vector<juce::Uuid> { aId });
+        expect (chain.getSlot (1).bypassed.load() && chain.getSlot (1).state.bypassed);
+        expectWithinAbsoluteError (f.render (0.25f, 8).getSample (0, 255), 0.25f, 1.0e-6f);
+        expect (! preset.plugins[0].bypassed);
     }
 
     void appendDeletedOffPlugin()

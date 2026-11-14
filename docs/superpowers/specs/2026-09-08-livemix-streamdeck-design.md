@@ -136,6 +136,7 @@ hello는 앞으로도 고정된 v1 bootstrap envelope로 보낸다. `supportedVe
 | `state.channels[]` | 현재 `MixSession::channels`(최대 8개) |
 | `channels[].id/name/on/muteGroup` | Uuid, 실제 이름, 원래 ON 비트, 마이크 뮤트그룹 소속 |
 | `channels[].pluginGroups[]` | 실제로 존재하는 그룹만. `index`는 **1-based** 1~5, `off`는 그룹 OFF 비트 |
+| `state.master.pluginGroups[]` | 마스터에 존재하는 그룹의 `{index, off}` 목록. 번호는 **1-based** 1~5. 마이크 그룹과 독립. 구 서버에서 `master`가 없으면 빈 목록으로 읽는다. `helloAck.capabilities`의 `masterPluginGroups`로 지원 여부를 판단한다. |
 | `channels[].sends[]` | 실제 FX마다 `fxId`, `amount`(유한한 0~1), `pre`(boolean) |
 | `state.fx[]` | 현재 FX 채널(최대 4개)의 `id`, `name`, `on`, `muteGroup`, `return`. `on` 추가: **1.3.0 / LiveMix 0.16.0** |
 | `fx[].on` (**1.3.0 / LiveMix 0.16.0**) | 개별 FX의 원래 ON boolean. OFF이면 리턴은 무음, 보내는 양은 유지. FX 뮤트그룹과 독립된 스위치이며 차단 효과는 OR. LiveMix 0.6.0~0.15.5의 snapshot에서 생략되면 plugin은 true로 읽고, 값이 있으나 boolean이 아니면 `INVALID_MESSAGE` |
@@ -191,6 +192,7 @@ hello는 앞으로도 고정된 v1 bootstrap envelope로 보낸다. `supportedVe
 | `muteAll` (**1.4.0 / LiveMix 0.18.0**) | 들어온 mic/fx boolean만 병합. 객체·키가 없으면 기존 값 유지, non-object/non-boolean은 `INVALID_MESSAGE`. 뮤트그룹과 별도 병합 | `{"muteAll":{"mic":true}}` |
 | `channels[]` | id로 기존 채널 검색 후 포함된 필드만 교체 | `{"channels":[{"id":"11111111111141118111111111111111","name":"방송 마이크","on":false}]}` |
 | `channels[].pluginGroups` | 해당 채널의 그룹 배열 **전체 교체** | `{"channels":[{"id":"11111111111141118111111111111111","pluginGroups":[{"index":1,"off":true}]}]}` |
+| `master.pluginGroups` | 마스터 그룹 배열 **전체 교체**. 빠진 필드는 유지. 그룹 개수·번호 변경은 full state | `{"master":{"pluginGroups":[{"index":1,"off":true}]}}` |
 | `channels[].sends` | 해당 채널의 보내기 배열 **전체 교체** | `{"channels":[{"id":"11111111111141118111111111111111","sends":[{"fxId":"22222222222242228222222222222222","amount":0.38,"pre":false}]}]}` |
 | `fx[]` | id로 기존 FX 검색 후 포함된 scalar만 교체. `on` 추가: **1.3.0 / LiveMix 0.16.0**. delta에 없으면 기존 값을 유지하고, 있으면 boolean 검증 | `{"fx":[{"id":"22222222222242228222222222222222","on":false,"return":0.5,"muteGroup":true}]}` |
 | 채널/FX 추가·삭제·순서 변경, 그룹 개수 변경, 세션 교체 | delta 대신 full state. v1에는 JSON Patch 경로·삭제 연산 없음 | 최상위 `reason="structureChanged"` 또는 `"sessionChanged"` |
@@ -200,6 +202,10 @@ hello는 앞으로도 고정된 v1 bootstrap envelope로 보낸다. `supportedVe
 ack의 `result`는 명령 처리 결과·후속 명령 계획용이며 **전역 상태 캐시의 부분 patch로 쓰지 않는다**. ack만 보고 캐시 revision을 앞으로 옮기면 뒤따르는 합쳐진 delta의 base가 어긋나기 때문이다. key의 확정 그림은 snapshot/delta로 갱신한다. pending은 해당 ack revision 이상인 state를 이미 갖고 있거나 새로 받으면 해제한다. `changed:false`이고 캐시가 최신이면 추가 event를 기다리지 않는다. 이 규칙으로 빠른 두 번 누르기와 여러 client의 변경을 검증한다.
 
 ### 2.5 명령·기존 API 대응표
+
+마스터 그룹 명령은 `setMasterPluginGroupOff`이며 args는 `{"index":1,"off":true}`이다. `index`는 정수 1~5, `off`는 boolean이다. 기존 편집 명령과 같은 instance/session/revision 검증을 거치고 값이 바뀌거나 `off:true`일 때만 `MixDocument::setMasterPluginGroupOff(index - 1, off)`를 호출한다. ACK result는 `{"index":1,"off":true}`이며 없는 그룹은 `PLUGIN_GROUP_NOT_FOUND`이다. 같은 값은 `changed:false`이며 revision·dirty를 바꾸지 않는다. 같은 값 `off:true`는 라이브 바이패스를 다시 맞추고, 같은 값 `off:false`는 사용자가 손으로 정한 멤버 플러그인의 바이패스를 유지한다. 마이크의 `setPluginGroupOffEverywhere`와 그룹 화면 명령은 마스터를 포함하지 않는다.
+
+Stream Deck의 `com.gomtwigim.livemix.plugin-group-master`는 capability `masterPluginGroups`가 있어야 실행한다. 없는 서버(0.22.0 이하)는 기존 업데이트 안내를 표시한다. 토글은 최신 `master.pluginGroups`의 OFF 값을 반전해 위 명령으로 보낸다. 프로토콜 버전은 v1을 유지한다.
 
 모든 명령은 hello 이후만 허용한다. 아래 args를 2.2의 command envelope에 넣는다. **모든 변경 명령에 현재 `instanceId`와 `sessionId`가 필수**다. 서버는 이름을 대신 검색하지 않고, client가 snapshot에서 결정한 Uuid를 message thread에서 다시 확인한다. `requestState`는 sessionId 없이 현재 세션을 조회할 수 있다.
 

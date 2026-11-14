@@ -25,7 +25,7 @@ struct MixSend
     bool pre = false;
 };
 
-/** A mic channel's plugin group: some of its chain's plugins, switched off (bypassed) together with one press of
+/** A mic or master's plugin group: some of its chain's plugins, switched off (bypassed) together with one press of
     the group's number on the card. The members are the slots' own ids (PluginSlotState::slotId), so a chain edited
     later - a plugin removed or moved - keeps the group right. */
 struct MixPluginGroup
@@ -67,6 +67,7 @@ struct MixFx
 struct MixMaster
 {
     std::vector<PluginSlotState> chain;
+    std::vector<MixPluginGroup> pluginGroups;
     int outputFirst = 0;   // the main output pair
     bool sendToObs = false;
 };
@@ -91,7 +92,7 @@ struct MixSession
     static constexpr int maxFx = 4;
     static constexpr int maxDeviceChannels = 64;
     static constexpr int maxChainSlots = 16;                        // plugins per chain
-    static constexpr int maxPluginGroups = 5;                       // plugin groups per mic channel
+    static constexpr int maxPluginGroups = 5;                       // plugin groups per mic or master
     static constexpr juce::int64 maxFileBytes = 32 * 1024 * 1024;   // a session file beyond this is not a session
     static constexpr const char* fileExtension = ".livemix";
 
