@@ -160,7 +160,7 @@ def find_gh():
 def run(cmd, cwd=ROOT, capture=False):
     print("+", " ".join(str(c) for c in cmd), flush=True)
     result = subprocess.run([str(c) for c in cmd], cwd=str(cwd), check=True,
-                            capture_output=capture, text=True)
+                            capture_output=capture, text=True, encoding="utf-8", errors="replace")   # git log subjects are UTF-8 (Korean); the locale default (cp949) crashed check_other_work
     return result.stdout if capture else ""
 
 
